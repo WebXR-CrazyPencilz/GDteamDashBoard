@@ -60,6 +60,13 @@ const PmpApi = (function () {
     getTeamAssignments: (teamLeadId) => call('pmp_getTeamAssignments', { teamLeadId }),
     // Creates one independent Assignment per employeeId against a single Task.
     createAssignments: (data) => call('pmp_createAssignments', data), // { taskId, employeeIds, createdBy }
+    // Atomic "new Task + its initial assignees" in one call — used by the
+    // "+ New Task" creation flow. If anything fails partway, the backend
+    // rolls back everything it created, so a failed attempt never leaves an
+    // orphan Task with nobody assigned to it. Adding/removing people on an
+    // already-existing Task still uses updateTask + createAssignments +
+    // deleteAssignment separately — this is only for brand-new Tasks.
+    createTaskWithAssignments: (data) => call('pmp_createTaskWithAssignments', data), // { projectId, taskName, dimension, priority, dueDate, notes, employeeIds, createdBy, estimatedHours }
     updateAssignment: (data) => call('pmp_updateAssignment', data),
     updateAssignmentStatus: (data) => call('pmp_updateAssignmentStatus', data),
     deleteAssignment: (data) => call('pmp_deleteAssignment', data),

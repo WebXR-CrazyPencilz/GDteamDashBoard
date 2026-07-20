@@ -350,12 +350,12 @@ const PmpAssignment = (function () {
           }
         }
       } else {
-        const taskRes = await PmpApi.createTask(Object.assign({ createdBy: actorId }, taskPayload));
-        if (taskRes.success) {
-          res = await PmpApi.createAssignments({ taskId: taskRes.taskId, employeeIds: assigneeIds, createdBy: actorId });
-        } else {
-          res = taskRes;
-        }
+        // Atomic: if anything fails partway, the backend rolls back
+        // everything itself — no orphan Task can be left behind here.
+        res = await PmpApi.createTaskWithAssignments(Object.assign(
+          { employeeIds: assigneeIds, createdBy: actorId },
+          taskPayload
+        ));
       }
 
       if (res.success) {
