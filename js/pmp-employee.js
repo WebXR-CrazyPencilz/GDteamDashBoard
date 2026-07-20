@@ -123,6 +123,12 @@ const PmpEmployee = (function () {
     content.querySelectorAll('[data-add-notes]').forEach(btn => {
       btn.addEventListener('click', () => openNotesModal(btn.dataset.addNotes));
     });
+    content.querySelectorAll('[data-pause]').forEach(btn => {
+      btn.addEventListener('click', () => pauseTask(btn.dataset.pause));
+    });
+    content.querySelectorAll('[data-resume]').forEach(btn => {
+      btn.addEventListener('click', () => resumeTask(btn.dataset.resume));
+    });
   }
 
   function taskCard(assignment) {
@@ -143,7 +149,10 @@ const PmpEmployee = (function () {
           <span class="pmp-badge pmp-badge-priority-${assignment.Priority}">${PmpUtils.escapeHtml(assignment.Priority)}</span>
           <span>Due ${PmpUtils.formatDate(assignment.DueDate)} ${delayed ? '<span class="pmp-badge pmp-badge-delayed">Delayed</span>' : ''}</span>
           <span class="pmp-badge" style="background:${PMP_CONFIG.STATUS_COLORS[assignment.Status] || '#eee'};">${PmpUtils.escapeHtml(assignment.Status)}</span>
+          ${assignment.Status === 'Assigned' ? '<span class="pmp-badge" style="background:var(--status-assigned); color:#fff;">New Task</span>' : ''}
+          ${assignment.IsPaused === true ? '<span class="pmp-badge" style="background:#B08D57; color:#fff;">Paused</span>' : ''}
         </div>
+        ${assignment.IsPaused === true && assignment.PauseReason ? `<div style="font-size:12px; color:var(--pmp-text-muted);"><strong>Paused:</strong> ${PmpUtils.escapeHtml(assignment.PauseReason)}</div>` : ''}
         ${assignment.Notes ? `<div style="font-size:12px;"><strong>Manager notes:</strong> <span style="color:var(--pmp-text-muted);">${PmpUtils.escapeHtml(assignment.Notes)}</span></div>` : ''}
         ${assignment.EmployeeNotes ? `<div style="font-size:12px; color:var(--pmp-text-muted); background:#FBF8F0; padding:8px; border-radius:6px;"><strong>Your notes:</strong> ${PmpUtils.escapeHtml(assignment.EmployeeNotes)}</div>` : ''}
         <div class="pmp-assignment-actions">
@@ -158,8 +167,12 @@ const PmpEmployee = (function () {
       return `<button class="pmp-btn pmp-btn-primary" data-start="${assignment.AssignmentID}">Start Work</button>`;
     }
     if (assignment.Status === 'Working') {
+      if (assignment.IsPaused === true) {
+        return `<button class="pmp-btn pmp-btn-primary" data-resume="${assignment.AssignmentID}">Resume</button>`;
+      }
       return `
         <button class="pmp-btn" data-add-notes="${assignment.AssignmentID}">Add Notes</button>
+        <button class="pmp-btn" data-pause="${assignment.AssignmentID}">Pause</button>
         <button class="pmp-btn pmp-btn-primary" data-complete="${assignment.AssignmentID}">Complete Task</button>
       `;
     }
@@ -181,6 +194,35 @@ const PmpEmployee = (function () {
       await refresh();
     } else {
       PmpUtils.toast(res.error || 'Could not update status', 'error');
+    }
+  }
+
+  async function pauseTask(assignmentId) {
+    const reason = prompt('What came up? (optional — leave blank to pause with no reason, or Cancel to not pause)');
+    if (reason === null) return; // user cancelled the dialog — don't pause
+    const res = await PmpApi.pauseAssignment({
+      assignmentId,
+      employeeId: state.employeeId,
+      reason
+    });
+    if (res.success) {
+      PmpUtils.toast('Task paused', 'success');
+      await refresh();
+    } else {
+      PmpUtils.toast(res.error || 'Could not pause task', 'error');
+    }
+  }
+
+  async function resumeTask(assignmentId) {
+    const res = await PmpApi.resumeAssignment({
+      assignmentId,
+      employeeId: state.employeeId
+    });
+    if (res.success) {
+      PmpUtils.toast('Task resumed', 'success');
+      await refresh();
+    } else {
+      PmpUtils.toast(res.error || 'Could not resume task', 'error');
     }
   }
 

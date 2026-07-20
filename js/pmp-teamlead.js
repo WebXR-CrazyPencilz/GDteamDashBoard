@@ -397,6 +397,12 @@ const PmpTeamLead = (function () {
         setAssignmentStatus(btn.dataset.updateStatus, select.value);
       });
     });
+    content.querySelectorAll('[data-pause-assignment]').forEach(btn => {
+      btn.addEventListener('click', () => pauseAssignment(btn.dataset.pauseAssignment));
+    });
+    content.querySelectorAll('[data-resume-assignment]').forEach(btn => {
+      btn.addEventListener('click', () => resumeAssignment(btn.dataset.resumeAssignment));
+    });
   }
 
   // One block per Task, with one row per assignee inside it — this is the
@@ -414,14 +420,19 @@ const PmpTeamLead = (function () {
       const employee = state.team.find(e => e.employeeId === a.AssignedTo);
       return `
         <tr>
-          <td>${PmpUtils.escapeHtml(employee ? employee.name : a.AssignedTo)} ${a.Status === 'Assigned' ? '<span class="pmp-badge" style="background:var(--status-assigned); color:#fff;">New Task</span>' : ''}</td>
+          <td>${PmpUtils.escapeHtml(employee ? employee.name : a.AssignedTo)} ${a.Status === 'Assigned' ? '<span class="pmp-badge" style="background:var(--status-assigned); color:#fff;">New Task</span>' : ''} ${a.IsPaused === true ? '<span class="pmp-badge" style="background:#B08D57; color:#fff;">Paused</span>' : ''}</td>
           <td>
             <select class="pmp-status-select" data-status-select="${a.AssignmentID}" style="background:${PMP_CONFIG.STATUS_COLORS[a.Status] || '#eee'};">
               ${PMP_CONFIG.STATUS_FLOW.map(s => `<option value="${s}" ${s === a.Status ? 'selected' : ''}>${s}</option>`).join('')}
             </select>
           </td>
           <td>${a.EmployeeNotes ? PmpUtils.escapeHtml(a.EmployeeNotes) : '<span style="color:var(--pmp-text-muted);">—</span>'}</td>
-          <td><button class="pmp-btn pmp-btn-primary" data-update-status="${a.AssignmentID}">Update</button></td>
+          <td>
+            <button class="pmp-btn pmp-btn-primary" data-update-status="${a.AssignmentID}">Update</button>
+            ${a.Status === 'Working' ? (a.IsPaused === true
+              ? `<button class="pmp-btn" data-resume-assignment="${a.AssignmentID}">Resume</button>`
+              : `<button class="pmp-btn" data-pause-assignment="${a.AssignmentID}">Pause</button>`) : ''}
+          </td>
         </tr>
       `;
     }).join('');
@@ -463,6 +474,39 @@ const PmpTeamLead = (function () {
       await refreshAll();
     } else {
       PmpUtils.toast(res.error || 'Could not update status', 'error');
+    }
+  }
+
+  // Team Lead can pause/resume on behalf of the assignee — useful when the
+  // Team Lead is the one who knows a more urgent Task just came up for them.
+  async function pauseAssignment(assignmentId) {
+    const reason = prompt('Reason for pausing? (optional — Cancel to not pause)');
+    if (reason === null) return;
+    const res = await PmpApi.pauseAssignment({
+      assignmentId,
+      employeeId: state.teamLeadId,
+      reason,
+      managerOverride: true
+    });
+    if (res.success) {
+      PmpUtils.toast('Task paused', 'success');
+      await refreshAll();
+    } else {
+      PmpUtils.toast(res.error || 'Could not pause task', 'error');
+    }
+  }
+
+  async function resumeAssignment(assignmentId) {
+    const res = await PmpApi.resumeAssignment({
+      assignmentId,
+      employeeId: state.teamLeadId,
+      managerOverride: true
+    });
+    if (res.success) {
+      PmpUtils.toast('Task resumed', 'success');
+      await refreshAll();
+    } else {
+      PmpUtils.toast(res.error || 'Could not resume task', 'error');
     }
   }
 

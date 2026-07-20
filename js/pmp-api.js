@@ -69,6 +69,11 @@ const PmpApi = (function () {
     createTaskWithAssignments: (data) => call('pmp_createTaskWithAssignments', data), // { projectId, taskName, dimension, priority, dueDate, notes, employeeIds, createdBy, estimatedHours }
     updateAssignment: (data) => call('pmp_updateAssignment', data),
     updateAssignmentStatus: (data) => call('pmp_updateAssignmentStatus', data),
+    // Pause/Resume are independent of Status — see Code.gs for why. Either
+    // the assignee themself or a Team Lead/Manager (managerOverride: true)
+    // can call these.
+    pauseAssignment: (data) => call('pmp_pauseAssignment', data), // { assignmentId, employeeId, reason?, managerOverride? }
+    resumeAssignment: (data) => call('pmp_resumeAssignment', data), // { assignmentId, employeeId, managerOverride? }
     deleteAssignment: (data) => call('pmp_deleteAssignment', data),
 
     // Employees
