@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PMP — Production Management Portal</title>
+  <link rel="stylesheet" href="css/pmp-theme.css">
+  <link rel="stylesheet" href="css/pmp-components.css">
+</head>
+<body>
+
+  <!-- LOGIN VIEW -->
+  <div id="pmp-login-view" class="pmp-container" style="max-width:380px; margin-top:80px;">
+    <div class="pmp-card">
+      <div class="pmp-brand" style="margin-bottom:16px;">
+        <div class="pmp-brand-mark"></div>
+        <span>PMP</span>
+      </div>
+      <h2 style="font-size:18px;">Sign in</h2>
+      <form id="pmp-login-form">
+        <div class="pmp-form-row">
+          <label>Username</label>
+          <input type="text" name="username" required autocomplete="username">
+        </div>
+        <div class="pmp-form-row">
+          <label>Password</label>
+          <input type="password" name="password" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="pmp-btn pmp-btn-primary" style="width:100%;">Sign in</button>
+        <p id="pmp-login-error" style="color:var(--status-delayed); font-size:12px; margin-top:8px; display:none;"></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- MANAGER PORTAL (Module 1 lives here; Employee portal is Module 2, not yet built) -->
+  <div id="pmp-manager-portal" style="display:none;">
+    <div class="pmp-topbar">
+      <div class="pmp-brand">
+        <div class="pmp-brand-mark"></div>
+        <span>PMP · Manager — <span id="pmp-mgr-user-name"></span></span>
+      </div>
+      <div class="pmp-user-chip">
+        <button class="pmp-btn" id="pmp-logout-btn">Log out</button>
+      </div>
+    </div>
+    <div class="pmp-container">
+      <div style="display:flex; gap:8px; margin-bottom:20px; border-bottom:1px solid var(--pmp-border); padding-bottom:12px;">
+        <button class="pmp-btn pmp-btn-primary" id="pmp-nav-work">Work</button>
+        <button class="pmp-btn" id="pmp-nav-people">People</button>
+      </div>
+      <div id="pmp-assignment-module"></div>
+      <div id="pmp-employees-module" style="display:none;"></div>
+    </div>
+  </div>
+
+  <!-- EMPLOYEE PORTAL PLACEHOLDER (Module 2 — not yet built) -->
+  <div id="pmp-employee-portal" style="display:none;">
+    <div class="pmp-topbar">
+      <div class="pmp-brand">
+        <div class="pmp-brand-mark"></div>
+        <span>PMP · My Tasks</span>
+      </div>
+      <div class="pmp-user-chip">
+        <span id="pmp-emp-user-name"></span>
+        <button class="pmp-btn" id="pmp-emp-inbox-nav-btn">Inbox <span id="pmp-emp-inbox-badge" class="pmp-badge" style="display:none; background:var(--status-assigned); color:#fff;"></span></button>
+        <button class="pmp-btn" id="pmp-emp-logout-btn">Log out</button>
+      </div>
+    </div>
+    <div class="pmp-container">
+      <div id="pmp-employee-module"></div>
+      <div id="pmp-emp-inbox-module" style="display:none;"></div>
+    </div>
+  </div>
+
+  <!-- TEAM LEADER PORTAL -->
+  <div id="pmp-teamlead-portal" style="display:none;">
+    <div class="pmp-topbar">
+      <div class="pmp-brand">
+        <div class="pmp-brand-mark"></div>
+        <span>PMP · Team Lead — <span id="pmp-tl-user-name"></span></span>
+      </div>
+      <div class="pmp-user-chip">
+        <button class="pmp-btn" id="pmp-tl-inbox-nav-btn">Inbox <span id="pmp-tl-inbox-badge" class="pmp-badge" style="display:none; background:var(--status-assigned); color:#fff;"></span></button>
+        <button class="pmp-btn" id="pmp-tl-logout-btn">Log out</button>
+      </div>
+    </div>
+    <div class="pmp-container">
+      <div id="pmp-teamlead-module"></div>
+      <div id="pmp-tl-inbox-module" style="display:none;"></div>
+    </div>
+  </div>
+
+  <script src="js/pmp-config.js"></script>
+  <script src="js/pmp-api.js"></script>
+  <script src="js/pmp-utils.js"></script>
+  <script src="js/pmp-inbox.js"></script>
+  <script src="js/pmp-assignment.js"></script>
+  <script src="js/pmp-employees.js"></script>
+  <script src="js/pmp-employee.js"></script>
+  <script src="js/pmp-teamlead.js"></script>
+  <script>
+    // Role-based routing at login — same pattern as TimeTrack's index.html
+    function showView(id) {
+      ['pmp-login-view', 'pmp-manager-portal', 'pmp-employee-portal', 'pmp-teamlead-portal'].forEach(v => {
+        document.getElementById(v).style.display = v === id ? 'block' : 'none';
+      });
+    }
+
+    async function routeToPortal(session) {
+      if (session.role === PMP_CONFIG.ROLES.MANAGER || session.role === PMP_CONFIG.ROLES.ADMIN) {
+        showView('pmp-manager-portal');
+        document.getElementById('pmp-mgr-user-name').textContent = session.name;
+        await PmpAssignment.init('pmp-assignment-module');
+        await PmpEmployees.init('pmp-employees-module');
+        setupManagerNav();
+        // Manager isn't wired to the Work Inbox — the backend only fires
+        // notifications at whoever a Task gets assigned to, and Manager
+        // doesn't currently receive assignments. Add setupInboxNav here
+        // the same way as below if that changes.
+      } else if (session.role === PMP_CONFIG.ROLES.TEAM_LEAD) {
+        showView('pmp-teamlead-portal');
+        document.getElementById('pmp-tl-user-name').textContent = session.name;
+        await PmpTeamLead.init('pmp-teamlead-module', session.employeeId);
+        await setupInboxNav({
+          navBtnId: 'pmp-tl-inbox-nav-btn',
+          badgeId: 'pmp-tl-inbox-badge',
+          mainModuleId: 'pmp-teamlead-module',
+          inboxModuleId: 'pmp-tl-inbox-module',
+          recipientId: session.employeeId,
+          onOpenTask: ({ taskId }) => highlightElement('[data-task-card="' + taskId + '"]')
+        });
+      } else {
+        showView('pmp-employee-portal');
+        document.getElementById('pmp-emp-user-name').textContent = session.name;
+        await PmpEmployee.init('pmp-employee-module', session.employeeId);
+        await setupInboxNav({
+          navBtnId: 'pmp-emp-inbox-nav-btn',
+          badgeId: 'pmp-emp-inbox-badge',
+          mainModuleId: 'pmp-employee-module',
+          inboxModuleId: 'pmp-emp-inbox-module',
+          recipientId: session.employeeId,
+          onOpenTask: ({ assignmentId }) => highlightElement('[data-assignment-card="' + assignmentId + '"]')
+        });
+      }
+    }
+
+    // Shared by the Team Lead and Employee portals: loads the Inbox into its
+    // (initially hidden) container so the unread badge is accurate as soon
+    // as the portal opens, wires the nav button to toggle between the
+    // portal's main module and the Inbox, and re-fetches on every open so
+    // the list is never stale.
+    async function setupInboxNav(opts) {
+      const navBtn = document.getElementById(opts.navBtnId);
+      const badge = document.getElementById(opts.badgeId);
+      const mainModule = document.getElementById(opts.mainModuleId);
+      const inboxModule = document.getElementById(opts.inboxModuleId);
+
+      await PmpInbox.init(opts.inboxModuleId, opts.recipientId, {
+        onOpenTask: (target) => {
+          inboxModule.style.display = 'none';
+          mainModule.style.display = 'block';
+          navBtn.classList.remove('pmp-btn-primary');
+          // Give the main module's DOM a beat to be visible before querying it.
+          setTimeout(() => opts.onOpenTask(target), 50);
+        },
+        onUnreadCountChange: (count) => {
+          badge.textContent = count;
+          badge.style.display = count > 0 ? 'inline-block' : 'none';
+        }
+      });
+      inboxModule.style.display = 'none'; // loaded (for the badge) but stays hidden until opened
+
+      navBtn.onclick = async () => {
+        const opening = inboxModule.style.display === 'none';
+        if (opening) {
+          await PmpInbox.refresh();
+          mainModule.style.display = 'none';
+          inboxModule.style.display = 'block';
+          navBtn.classList.add('pmp-btn-primary');
+        } else {
+          inboxModule.style.display = 'none';
+          mainModule.style.display = 'block';
+          navBtn.classList.remove('pmp-btn-primary');
+        }
+      };
+    }
+
+    // Scrolls to and briefly outlines a card after "Open Task" switches back
+    // to the main module. Fails silently if the element isn't currently
+    // rendered (e.g. filtered out, or the Team Lead had switched to the
+    // Employees tab) — the view still switches, it just won't highlight.
+    function highlightElement(selector) {
+      const el = document.querySelector(selector);
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const originalBoxShadow = el.style.boxShadow;
+      el.style.transition = 'box-shadow 0.3s ease';
+      el.style.boxShadow = '0 0 0 3px var(--status-assigned)';
+      setTimeout(() => { el.style.boxShadow = originalBoxShadow; }, 1500);
+    }
+
+    function setupManagerNav() {
+      const workBtn = document.getElementById('pmp-nav-work');
+      const peopleBtn = document.getElementById('pmp-nav-people');
+      const workPanel = document.getElementById('pmp-assignment-module');
+      const peoplePanel = document.getElementById('pmp-employees-module');
+
+      workBtn.onclick = () => {
+        workPanel.style.display = 'block';
+        peoplePanel.style.display = 'none';
+        workBtn.classList.add('pmp-btn-primary');
+        peopleBtn.classList.remove('pmp-btn-primary');
+      };
+      peopleBtn.onclick = () => {
+        workPanel.style.display = 'none';
+        peoplePanel.style.display = 'block';
+        peopleBtn.classList.add('pmp-btn-primary');
+        workBtn.classList.remove('pmp-btn-primary');
+      };
+    }
+
+    document.getElementById('pmp-login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const errorEl = document.getElementById('pmp-login-error');
+      errorEl.style.display = 'none';
+
+      const res = await PmpApi.login(fd.get('username'), fd.get('password'));
+      if (res.success) {
+        PmpUtils.setSession(res.employee);
+        routeToPortal(res.employee);
+      } else {
+        errorEl.textContent = res.error || 'Login failed';
+        errorEl.style.display = 'block';
+      }
+    });
+
+    document.getElementById('pmp-logout-btn').addEventListener('click', () => {
+      PmpUtils.clearSession();
+      location.reload();
+    });
+    document.getElementById('pmp-emp-logout-btn').addEventListener('click', () => {
+      PmpUtils.clearSession();
+      location.reload();
+    });
+    document.getElementById('pmp-tl-logout-btn').addEventListener('click', () => {
+      PmpUtils.clearSession();
+      location.reload();
+    });
+
+    // Restore session on load
+    (function bootstrap() {
+      const session = PmpUtils.getSession();
+      if (session) {
+        routeToPortal(session);
+      } else {
+        showView('pmp-login-view');
+      }
+    })();
+  </script>
+</body>
+</html>
