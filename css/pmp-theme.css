@@ -1,0 +1,84 @@
+/**
+ * PMP — Theme tokens
+ * Soft Yellow / Amber identity. Distinct from TimeTrack's blue theme.
+ */
+
+:root {
+  /* Brand */
+  --pmp-primary: #F5D866;
+  --pmp-primary-dark: #E0C24C;
+  --pmp-accent: #D89A2A;
+  --pmp-accent-dark: #B5761F;
+
+  /* Surface */
+  --pmp-bg: #FFFDF8;
+  --pmp-card: #FFFFFF;
+  --pmp-border: #EFE6D8;
+  --pmp-border-strong: #E3D5BC;
+
+  /* Text */
+  --pmp-text: #2E2C28;
+  --pmp-text-muted: #7A756B;
+  --pmp-text-on-primary: #3A2E0E;
+
+  /* Status */
+  --status-assigned: #F5D866;
+  --status-accepted: #E3C15A;
+  --status-working: #D89A2A;
+  --status-review: #B5761F;
+  --status-completed: #6FAE7A;
+  --status-closed: #9A958C;
+  --status-delayed: #D9534F;
+
+  /* Priority */
+  --priority-low: #9A958C;
+  --priority-medium: #D89A2A;
+  --priority-high: #D9534F;
+
+  /* Layout */
+  --pmp-radius: 10px;
+  --pmp-radius-sm: 6px;
+  --pmp-space-1: 4px;
+  --pmp-space-2: 8px;
+  --pmp-space-3: 16px;
+  --pmp-space-4: 24px;
+  --pmp-space-5: 32px;
+  --pmp-max-width: 1280px;
+
+  --pmp-font-body: -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --pmp-font-display: 'Georgia', serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--pmp-bg);
+  color: var(--pmp-text);
+  font-family: var(--pmp-font-body);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+h1, h2, h3 {
+  font-family: var(--pmp-font-display);
+  font-weight: 600;
+  margin: 0 0 var(--pmp-space-2);
+  color: var(--pmp-text);
+}
+
+a { color: var(--pmp-accent-dark); }
+
+::selection {
+  background: var(--pmp-primary);
+  color: var(--pmp-text-on-primary);
+}
+
+:focus-visible {
+  outline: 2px solid var(--pmp-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
