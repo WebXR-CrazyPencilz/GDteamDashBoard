@@ -77,6 +77,7 @@ const PmpAssignment = (function () {
     container().innerHTML = `
       <div class="pmp-tabs" style="display:flex; gap:8px; margin-bottom:16px;">
         <button class="pmp-btn" data-tab="assignments">Assignments</button>
+        <button class="pmp-btn" data-tab="attendance">Attendance</button>
         <button class="pmp-btn" data-tab="projects">Projects</button>
         <button class="pmp-btn" data-tab="clients">Clients</button>
         <div style="flex:1;"></div>
@@ -95,15 +96,23 @@ const PmpAssignment = (function () {
     document.getElementById('pmp-new-btn').addEventListener('click', () => {
       if (state.activeTab === 'assignments') openTaskModal();
       else if (state.activeTab === 'projects') openProjectModal();
-      else openClientModal();
+      else if (state.activeTab === 'clients') openClientModal();
+      // No create action on the Timesheet tab — it's a computed report, not editable data.
     });
   }
 
   function render() {
     highlightActiveTab();
+    const newBtn = document.getElementById('pmp-new-btn');
+    newBtn.style.display = state.activeTab === 'attendance' ? 'none' : 'inline-block';
+
     const content = document.getElementById('pmp-tab-content');
     if (!content) return;
 
+    // Timesheet is its own self-sufficient module (own state, own data
+    // fetch) rather than a plain render function — it reads ActivityLog,
+    // which nothing else on this tab needs.
+    if (state.activeTab === 'attendance') { PmpAttendance.init('pmp-tab-content'); return; }
     if (state.activeTab === 'assignments') renderAssignments(content);
     else if (state.activeTab === 'projects') renderProjects(content);
     else renderClients(content);

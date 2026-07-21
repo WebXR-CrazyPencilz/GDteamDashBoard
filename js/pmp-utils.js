@@ -27,15 +27,19 @@ const PmpUtils = (function () {
     return days !== null && days < 0;
   }
 
-  // Deterministic pastel color per ID, same pattern as TimeTrack's per-project color hash
-  function colorFromId(id) {
+  // Deterministic pastel color per ID, same pattern as TimeTrack's per-project color hash.
+  // Optional `lightness` overrides the default 88% pastel — used by the
+  // Attendance dashboard to render the SAME color darker for a submitted
+  // day vs lighter for one that's only got raw logged activity.
+  function colorFromId(id, lightness) {
     let hash = 0;
     const str = String(id);
     for (let i = 0; i < str.length; i++) {
       hash = str.charCodeAt(i) + ((hash << 5) - hash);
     }
     const hue = Math.abs(hash) % 360;
-    return `hsl(${hue}, 65%, 88%)`;
+    const l = lightness !== undefined ? lightness : 88;
+    return `hsl(${hue}, 65%, ${l}%)`;
   }
 
   // Groups flat Assignment rows under their parent Task. One Task can have
@@ -88,6 +92,64 @@ const PmpUtils = (function () {
     `;
   }
 
+  // Local calendar-date string (YYYY-MM-DD) — deliberately NOT
+  // value.toISOString().slice(0,10), which rolls a date back by one day in
+  // any UTC+ timezone (e.g. IST) because toISOString() converts to UTC
+  // first. Uses the browser's local getFullYear/getMonth/getDate instead.
+  function toLocalDateStr(value) {
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return '';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  // Turns raw ActivityLog rows (Timestamp, EmployeeID, AssignmentID, Action,
+  // FromStatus, ToStatus) into "active work intervals" — this is what
+  // powers the Timesheet tab. ActivityLog itself is never modified; this
+  // only reads and derives from it.
+  //
+  // A start event is either the first Assigned->Working StatusChange, or
+  // any Resumed. An end event is either a Paused, or a StatusChange out of
+  // Working (e.g. Complete Task moving it to Review). An interval that's
+  // still open (task is currently Working, hasn't been paused or completed
+  // yet) is intentionally left out — there's no end time to show for it yet.
+  function computeWorkIntervals(activityLog) {
+    const byAssignment = {};
+    (activityLog || []).forEach(row => {
+      if (!byAssignment[row.AssignmentID]) byAssignment[row.AssignmentID] = [];
+      byAssignment[row.AssignmentID].push(row);
+    });
+
+    const intervals = [];
+    Object.keys(byAssignment).forEach(assignmentId => {
+      const rows = byAssignment[assignmentId].slice().sort((a, b) => new Date(a.Timestamp) - new Date(b.Timestamp));
+      let openStart = null;
+
+      rows.forEach(row => {
+        const isStart = (row.Action === 'StatusChange' && row.FromStatus === 'Assigned' && row.ToStatus === 'Working')
+          || row.Action === 'Resumed';
+        const isEnd = row.Action === 'Paused'
+          || (row.Action === 'StatusChange' && row.FromStatus === 'Working' && row.ToStatus !== 'Working');
+
+        if (isStart && !openStart) {
+          openStart = row.Timestamp;
+        } else if (isEnd && openStart) {
+          intervals.push({
+            AssignmentID: assignmentId,
+            EmployeeID: row.EmployeeID,
+            start: openStart,
+            end: row.Timestamp
+          });
+          openStart = null;
+        }
+      });
+    });
+
+    return intervals;
+  }
+
   function toast(message, type) {
     const el = document.createElement('div');
     el.className = 'pmp-toast pmp-toast-' + (type || 'info');
@@ -132,6 +194,8 @@ const PmpUtils = (function () {
     colorFromId,
     groupAssignmentsByTask,
     employeeCheckboxList,
+    toLocalDateStr,
+    computeWorkIntervals,
     toast,
     escapeHtml,
     getSession,

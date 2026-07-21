@@ -60,6 +60,7 @@ const PmpTeamLead = (function () {
     container().innerHTML = `
       <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
         <button class="pmp-btn pmp-btn-primary" data-tab="assignments">Assignments</button>
+        <button class="pmp-btn" data-tab="attendance">Attendance</button>
         <button class="pmp-btn" data-tab="projects">Projects</button>
         <button class="pmp-btn" data-tab="clients">Clients</button>
         <button class="pmp-btn" data-tab="team">Employees</button>
@@ -106,13 +107,17 @@ const PmpTeamLead = (function () {
     });
 
     const newBtn = document.getElementById('pmp-tl-new-btn');
-    const newBtnLabels = { assignments: '+ New Task', projects: '+ New Project', clients: '+ New Client', team: '' };
+    const newBtnLabels = { assignments: '+ New Task', projects: '+ New Project', clients: '+ New Client', team: '', attendance: '' };
     newBtn.textContent = newBtnLabels[state.activeTab] || '';
     newBtn.style.display = newBtn.textContent ? 'inline-block' : 'none';
 
     const content = document.getElementById('pmp-tl-content');
     if (!content) return;
 
+    // Timesheet is its own self-sufficient module (own state, own data
+    // fetch) rather than a plain render function like Projects/Clients —
+    // it reads ActivityLog, which nothing else on this tab needs.
+    if (state.activeTab === 'attendance') { PmpAttendance.init('pmp-tl-content'); return; }
     if (state.activeTab === 'projects') { renderProjects(content); return; }
     if (state.activeTab === 'clients') { renderClients(content); return; }
 

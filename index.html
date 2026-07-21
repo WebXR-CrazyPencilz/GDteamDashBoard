@@ -32,8 +32,6 @@
     </div>
   </div>
 
-  
-
   <!-- MANAGER PORTAL (Module 1 lives here; Employee portal is Module 2, not yet built) -->
   <div id="pmp-manager-portal" style="display:none;">
     <div class="pmp-topbar">
@@ -64,12 +62,15 @@
       </div>
       <div class="pmp-user-chip">
         <span id="pmp-emp-user-name"></span>
+        <button class="pmp-btn pmp-btn-primary" id="pmp-emp-mytasks-nav-btn">My Tasks</button>
+        <button class="pmp-btn" id="pmp-emp-timesheet-nav-btn">Timesheet</button>
         <button class="pmp-btn" id="pmp-emp-inbox-nav-btn">Inbox <span id="pmp-emp-inbox-badge" class="pmp-badge" style="display:none; background:var(--status-assigned); color:#fff;"></span></button>
         <button class="pmp-btn" id="pmp-emp-logout-btn">Log out</button>
       </div>
     </div>
     <div class="pmp-container">
       <div id="pmp-employee-module"></div>
+      <div id="pmp-emp-timesheet-module" style="display:none;"></div>
       <div id="pmp-emp-inbox-module" style="display:none;"></div>
     </div>
   </div>
@@ -96,6 +97,8 @@
   <script src="js/pmp-api.js"></script>
   <script src="js/pmp-utils.js"></script>
   <script src="js/pmp-inbox.js"></script>
+  <script src="js/pmp-timesheet.js"></script>
+  <script src="js/pmp-attendance.js"></script>
   <script src="js/pmp-assignment.js"></script>
   <script src="js/pmp-employees.js"></script>
   <script src="js/pmp-employee.js"></script>
@@ -135,15 +138,61 @@
         showView('pmp-employee-portal');
         document.getElementById('pmp-emp-user-name').textContent = session.name;
         await PmpEmployee.init('pmp-employee-module', session.employeeId);
-        await setupInboxNav({
-          navBtnId: 'pmp-emp-inbox-nav-btn',
-          badgeId: 'pmp-emp-inbox-badge',
-          mainModuleId: 'pmp-employee-module',
-          inboxModuleId: 'pmp-emp-inbox-module',
-          recipientId: session.employeeId,
-          onOpenTask: ({ assignmentId }) => highlightElement('[data-assignment-card="' + assignmentId + '"]')
+        await setupEmployeePanels(session);
+      }
+    }
+
+    // Employee portal has three panels (My Tasks / Timesheet / Inbox) —
+    // unlike the Team Lead's two-panel case, this needs an explicit way
+    // back to My Tasks too, so it's its own switcher rather than reusing
+    // setupInboxNav's binary toggle.
+    async function setupEmployeePanels(session) {
+      const panels = {
+        mytasks: { navBtnId: 'pmp-emp-mytasks-nav-btn', moduleId: 'pmp-employee-module' },
+        timesheet: { navBtnId: 'pmp-emp-timesheet-nav-btn', moduleId: 'pmp-emp-timesheet-module' },
+        inbox: { navBtnId: 'pmp-emp-inbox-nav-btn', moduleId: 'pmp-emp-inbox-module' }
+      };
+      let timesheetLoaded = false;
+      const badge = document.getElementById('pmp-emp-inbox-badge');
+
+      function showPanel(key) {
+        Object.keys(panels).forEach(k => {
+          document.getElementById(panels[k].moduleId).style.display = k === key ? 'block' : 'none';
+          document.getElementById(panels[k].navBtnId).classList.toggle('pmp-btn-primary', k === key);
         });
       }
+
+      document.getElementById(panels.mytasks.navBtnId).addEventListener('click', () => showPanel('mytasks'));
+
+      document.getElementById(panels.timesheet.navBtnId).addEventListener('click', async () => {
+        showPanel('timesheet');
+        if (!timesheetLoaded) {
+          timesheetLoaded = true;
+          await PmpTimesheet.init('pmp-emp-timesheet-module', { mode: 'edit', employeeId: session.employeeId });
+        } else {
+          await PmpTimesheet.refresh();
+        }
+      });
+
+      document.getElementById(panels.inbox.navBtnId).addEventListener('click', async () => {
+        showPanel('inbox');
+        await PmpInbox.refresh();
+      });
+
+      // Load the Inbox up front (hidden) so the unread badge is accurate
+      // as soon as the portal opens, same as before.
+      await PmpInbox.init('pmp-emp-inbox-module', session.employeeId, {
+        onOpenTask: ({ assignmentId }) => {
+          showPanel('mytasks');
+          setTimeout(() => highlightElement('[data-assignment-card="' + assignmentId + '"]'), 50);
+        },
+        onUnreadCountChange: (count) => {
+          badge.textContent = count;
+          badge.style.display = count > 0 ? 'inline-block' : 'none';
+        }
+      });
+
+      showPanel('mytasks'); // default view on portal open
     }
 
     // Shared by the Team Lead and Employee portals: loads the Inbox into its

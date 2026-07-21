@@ -90,6 +90,13 @@ const PmpApi = (function () {
     getMyInbox: (recipientId) => call('pmp_getMyInbox', { recipientId }),
     markNotificationRead: (notificationId) => call('pmp_markNotificationRead', { notificationId }),
 
+    // Timesheet (read-only ActivityLog access, plus employee-entered entries)
+    getActivityLog: () => call('pmp_getActivityLog'),
+    getTimesheetEntries: (data) => call('pmp_getTimesheetEntries', data), // { employeeId, date }
+    getAllTimesheetEntries: (data) => call('pmp_getAllTimesheetEntries', data), // { employeeId } — every submitted entry, all dates
+    upsertTimesheetEntry: (data) => call('pmp_upsertTimesheetEntry', data), // { employeeId, date, entryId?, assignmentId, clientName, projectName, taskName, dimension, startTime, endTime, notes, source }
+    saveTimesheetEntries: (data) => call('pmp_saveTimesheetEntries', data), // { employeeId, date, entries }
+
     // Setup (dev use only)
     setupSheets: () => call('pmp_setupSheets')
   };
