@@ -526,6 +526,8 @@ const PmpTeamLead = (function () {
     const currentAssigneeIds = editing
       ? state.assignments.filter(a => a.TaskID === editing.TaskID).map(a => a.AssignedTo)
       : [];
+    const editingProject = editing ? state.projects.find(p => p.ProjectID === editing.ProjectID) : null;
+    const initialClientId = editingProject ? editingProject.ClientID : '';
 
     const overlay = document.createElement('div');
     overlay.className = 'pmp-modal-overlay';
@@ -537,10 +539,17 @@ const PmpTeamLead = (function () {
         </div>
         <form id="pmp-tl-task-form">
           <div class="pmp-form-row">
+            <label>Client</label>
+            <select id="pmp-tl-task-client">
+              <option value="">Select client</option>
+              ${state.clients.map(c => `<option value="${c.ClientID}" ${initialClientId === c.ClientID ? 'selected' : ''}>${PmpUtils.escapeHtml(c.ClientName)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="pmp-form-row">
             <label>Project</label>
-            <select name="projectId" required>
-              <option value="">Select project</option>
-              ${state.projects.map(p => `<option value="${p.ProjectID}" ${editing && editing.ProjectID === p.ProjectID ? 'selected' : ''}>${PmpUtils.escapeHtml(p.ProjectName)}</option>`).join('')}
+            <select name="projectId" id="pmp-tl-task-project" required>
+              <option value="">${initialClientId ? 'Select project' : 'Select a client first'}</option>
+              ${state.projects.filter(p => p.ClientID === initialClientId).map(p => `<option value="${p.ProjectID}" ${editing && editing.ProjectID === p.ProjectID ? 'selected' : ''}>${PmpUtils.escapeHtml(p.ProjectName)}</option>`).join('')}
             </select>
           </div>
           <div class="pmp-form-row">
@@ -559,9 +568,15 @@ const PmpTeamLead = (function () {
               </select>
             </div>
           </div>
-          <div class="pmp-form-row">
-            <label>Due Date</label>
-            <input type="date" name="dueDate" value="${editing && editing.DueDate ? new Date(editing.DueDate).toISOString().slice(0,10) : ''}">
+          <div class="pmp-form-grid">
+            <div class="pmp-form-row">
+              <label>Due Date</label>
+              <input type="date" name="dueDate" value="${editing && editing.DueDate ? new Date(editing.DueDate).toISOString().slice(0,10) : ''}">
+            </div>
+            <div class="pmp-form-row">
+              <label>Time Duration (hrs)</label>
+              <input type="number" name="estimatedHours" min="0" step="0.5" placeholder="e.g. 4">
+            </div>
           </div>
           <div class="pmp-form-row">
             <label>+ Add People</label>
@@ -586,6 +601,18 @@ const PmpTeamLead = (function () {
     overlay.querySelector('.pmp-modal-cancel').addEventListener('click', close);
     overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
 
+    // Client is a pure UI filter — it's never sent to the backend, since
+    // Project already implies its Client. Picking one just narrows the
+    // Project dropdown down to that client's projects.
+    overlay.querySelector('#pmp-tl-task-client').addEventListener('change', e => {
+      const projectSelect = overlay.querySelector('#pmp-tl-task-project');
+      const filtered = state.projects.filter(p => p.ClientID === e.target.value);
+      projectSelect.innerHTML = `
+        <option value="">${e.target.value ? 'Select project' : 'Select a client first'}</option>
+        ${filtered.map(p => `<option value="${p.ProjectID}">${PmpUtils.escapeHtml(p.ProjectName)}</option>`).join('')}
+      `;
+    });
+
     overlay.querySelector('#pmp-tl-task-form').addEventListener('submit', async e => {
       e.preventDefault();
       const fd = new FormData(e.target);
@@ -607,6 +634,7 @@ const PmpTeamLead = (function () {
         dueDate: fd.get('dueDate'),
         notes: fd.get('notes')
       };
+      const estimatedHours = fd.get('estimatedHours');
 
       const submitBtn = e.target.querySelector('button[type="submit"]');
       submitBtn.disabled = true;
@@ -618,7 +646,7 @@ const PmpTeamLead = (function () {
           const toAdd = assigneeIds.filter(id => !currentAssigneeIds.includes(id));
           const toRemove = currentAssigneeIds.filter(id => !assigneeIds.includes(id));
           if (toAdd.length > 0) {
-            await PmpApi.createAssignments({ taskId: editing.TaskID, employeeIds: toAdd, createdBy: state.teamLeadId });
+            await PmpApi.createAssignments({ taskId: editing.TaskID, employeeIds: toAdd, createdBy: state.teamLeadId, estimatedHours });
           }
           for (const removedId of toRemove) {
             const a = state.assignments.find(x => x.TaskID === editing.TaskID && x.AssignedTo === removedId);
@@ -630,7 +658,7 @@ const PmpTeamLead = (function () {
         // assignment write fails, etc.), the backend rolls back everything
         // itself — no orphan Task can be left behind here.
         res = await PmpApi.createTaskWithAssignments(Object.assign(
-          { employeeIds: assigneeIds, createdBy: state.teamLeadId },
+          { employeeIds: assigneeIds, createdBy: state.teamLeadId, estimatedHours },
           taskPayload
         ));
       }

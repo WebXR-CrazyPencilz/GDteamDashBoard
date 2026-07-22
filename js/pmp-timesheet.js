@@ -81,7 +81,7 @@ const PmpTimesheet = (function () {
             <option value="All">All employees</option>
           </select>
         ` : ''}
-        ${state.mode === 'edit' ? `<div style="flex:1;"></div><button class="pmp-btn" id="pmp-ts-add-lunch-btn">+ Add Lunch</button><button class="pmp-btn" id="pmp-ts-add-row-btn">+ Add Manual Entry</button><button class="pmp-btn pmp-btn-primary" id="pmp-ts-save-btn">Save Whole Day</button>` : ''}
+        ${state.mode === 'edit' ? `<div style="flex:1;"></div><button class="pmp-btn" id="pmp-ts-mark-leave-btn">Mark Day as Leave</button><button class="pmp-btn" id="pmp-ts-add-lunch-btn">+ Add Lunch</button><button class="pmp-btn" id="pmp-ts-add-row-btn">+ Add Manual Entry</button><button class="pmp-btn pmp-btn-primary" id="pmp-ts-save-btn">Save Whole Day</button>` : ''}
       </div>
       <div id="pmp-ts-content"></div>
     `;
@@ -97,6 +97,7 @@ const PmpTimesheet = (function () {
         renderView();
       });
     } else {
+      document.getElementById('pmp-ts-mark-leave-btn').addEventListener('click', markDayAsLeave);
       document.getElementById('pmp-ts-add-lunch-btn').addEventListener('click', addLunchRow);
       document.getElementById('pmp-ts-add-row-btn').addEventListener('click', addManualRow);
       document.getElementById('pmp-ts-save-btn').addEventListener('click', saveTimesheet);
@@ -280,10 +281,60 @@ const PmpTimesheet = (function () {
         };
       });
 
-    state.editRows = [...savedRows, ...suggestedRows].sort((a, b) => a.startTime.localeCompare(b.startTime));
+    // Lunch Break (1:00-1:45pm) and Tea Break (4:00-4:15pm) are fixed
+    // company schedule slots, not optional add-ons — nobody works during
+    // them. They show up by default AND are auto-saved immediately (no
+    // manual Submit needed), since they're a fixed policy fact for every
+    // day, not something that needs day-to-day confirmation. Still fully
+    // editable (times can be corrected, e.g. a short day) and removable
+    // if a particular day's actual break differed or didn't happen.
+    const existingRows = [...savedRows, ...suggestedRows];
+    const missingFixedBreaks = PMP_FIXED_BREAKS
+      .filter(fb => !existingRows.some(r => r.taskName.toLowerCase() === fb.taskName.toLowerCase()));
+
+    const fixedBreakRows = [];
+    for (const fb of missingFixedBreaks) {
+      const upsertRes = await PmpApi.upsertTimesheetEntry({
+        employeeId: state.employeeId,
+        date: state.filters.date,
+        assignmentId: '',
+        clientName: '',
+        projectName: '',
+        taskName: fb.taskName,
+        dimension: '',
+        startTime: state.filters.date + ' ' + fb.startTime,
+        endTime: state.filters.date + ' ' + fb.endTime,
+        notes: '',
+        source: 'Manual'
+      });
+      fixedBreakRows.push({
+        localId: upsertRes.success ? upsertRes.entryId : ('break-' + fb.taskName.replace(/\s+/g, '') + '-' + state.filters.date),
+        assignmentId: '',
+        clientName: '',
+        projectName: '',
+        taskName: fb.taskName,
+        dimension: '',
+        startTime: fb.startTime,
+        endTime: fb.endTime,
+        notes: '',
+        source: 'Manual',
+        locked: true, // fixed schedule slot — task name itself isn't editable, but time/notes still are
+        submitted: !!upsertRes.success
+      });
+    }
+
+    state.editRows = [...savedRows, ...suggestedRows, ...fixedBreakRows].sort((a, b) => a.startTime.localeCompare(b.startTime));
 
     renderEdit();
   }
+
+  // Fixed company schedule breaks — see the Office Timing spec: Session 1
+  // (9:30-1:00), Lunch (1:00-1:45), Session 2 (1:45-4:00), Tea (4:00-4:15),
+  // Session 3 (4:15-7:30).
+  const PMP_FIXED_BREAKS = [
+    { taskName: 'Lunch Break', startTime: '13:00', endTime: '13:45' },
+    { taskName: 'Tea Break', startTime: '16:00', endTime: '16:15' }
+  ];
 
   // True if some saved entry for this task overlaps this computed
   // interval's time range — overlap, not exact equality, so a minor time
@@ -326,14 +377,7 @@ const PmpTimesheet = (function () {
       return;
     }
 
-    const rows = state.editRows.map(rowHtml).join('');
-
-    content.innerHTML = `
-      <table class="pmp-table">
-        <thead><tr><th>Client</th><th>Project</th><th>Task</th><th>Dimension</th><th>Start</th><th>End</th><th>Notes</th><th></th><th></th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    `;
+    content.innerHTML = state.editRows.map(rowHtml).join('');
 
     content.querySelectorAll('[data-delete-row]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -347,25 +391,39 @@ const PmpTimesheet = (function () {
   }
 
   function rowHtml(row) {
+    const taskField = row.locked
+      ? `<div class="pmp-assignment-title">${PmpUtils.escapeHtml(row.taskName || 'Untitled task')}</div>`
+      : `<input type="text" data-field="taskName" data-row="${row.localId}" value="${PmpUtils.escapeHtml(row.taskName)}" placeholder="e.g. Team meeting" style="font-weight:600; font-size:15px; border:none; background:transparent; padding:2px 0; width:100%;">`;
+
+    const metaBits = [];
+    if (row.clientName) metaBits.push(`<span>${PmpUtils.escapeHtml(row.clientName)}</span>`);
+    if (row.projectName) metaBits.push(`<span>${PmpUtils.escapeHtml(row.projectName)}</span>`);
+
     return `
-      <tr data-row-id="${row.localId}">
-        <td>${row.locked ? PmpUtils.escapeHtml(row.clientName || '—') : '<span style="color:var(--pmp-text-muted);">—</span>'}</td>
-        <td>${row.locked ? PmpUtils.escapeHtml(row.projectName || '—') : '<span style="color:var(--pmp-text-muted);">—</span>'}</td>
-        <td>
-          ${row.locked
-            ? PmpUtils.escapeHtml(row.taskName || 'Untitled task')
-            : `<input type="text" data-field="taskName" data-row="${row.localId}" value="${PmpUtils.escapeHtml(row.taskName)}" placeholder="e.g. Team meeting">`}
-        </td>
-        <td><input type="text" data-field="dimension" data-row="${row.localId}" value="${PmpUtils.escapeHtml(row.dimension)}" placeholder="e.g. 1080x1920"></td>
-        <td><input type="time" data-field="startTime" data-row="${row.localId}" value="${row.startTime}"></td>
-        <td><input type="time" data-field="endTime" data-row="${row.localId}" value="${row.endTime}"></td>
-        <td><input type="text" data-field="notes" data-row="${row.localId}" value="${PmpUtils.escapeHtml(row.notes)}" placeholder="Optional"></td>
-        <td>
-          <button class="pmp-btn ${row.submitted ? '' : 'pmp-btn-primary'}" data-submit-row="${row.localId}">${row.submitted ? 'Update' : 'Submit'}</button>
+      <div class="pmp-card" data-row-id="${row.localId}" style="margin-bottom:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
+          <div style="flex:1; min-width:220px;">
+            ${taskField}
+            <div class="pmp-assignment-meta" style="margin-top:4px; align-items:center;">
+              ${metaBits.join('')}
+              <input type="text" data-field="dimension" data-row="${row.localId}" value="${PmpUtils.escapeHtml(row.dimension)}" placeholder="Dimension" style="border:1px solid var(--pmp-border, #ddd); border-radius:4px; padding:2px 6px; font-size:12px; width:120px;">
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <input type="time" data-field="startTime" data-row="${row.localId}" value="${row.startTime}">
+            <span style="color:var(--pmp-text-muted); font-size:13px;">to</span>
+            <input type="time" data-field="endTime" data-row="${row.localId}" value="${row.endTime}">
+          </div>
+        </div>
+        <div style="margin-top:10px;">
+          <input type="text" data-field="notes" data-row="${row.localId}" value="${PmpUtils.escapeHtml(row.notes)}" placeholder="Add notes..." style="width:100%; box-sizing:border-box;">
+        </div>
+        <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-top:10px;">
           ${row.submitted ? '<span class="pmp-badge" style="background:var(--status-completed); color:#fff;">Submitted</span>' : ''}
-        </td>
-        <td><button class="pmp-btn pmp-btn-danger" data-delete-row="${row.localId}">Remove</button></td>
-      </tr>
+          <button class="pmp-btn ${row.submitted ? '' : 'pmp-btn-primary'}" data-submit-row="${row.localId}">${row.submitted ? 'Update' : 'Submit'}</button>
+          <button class="pmp-btn pmp-btn-danger" data-delete-row="${row.localId}">Remove</button>
+        </div>
+      </div>
     `;
   }
 
@@ -385,6 +443,74 @@ const PmpTimesheet = (function () {
       submitted: false
     });
     renderEdit();
+  }
+
+  // Replaces the whole day's rows with a single fixed Leave entry spanning
+  // the full working day. Still just sits in state.editRows until the
+  // employee clicks Submit or Save Whole Day — same as any other row,
+  // nothing is persisted just by clicking this. Locked so the "Leave"
+  // label itself can't be accidentally retyped into something else — the
+  // time range and Notes stay fully editable either way (see rowHtml,
+  // those two fields are never gated by `locked`).
+  function markDayAsLeave() {
+    const overlay = document.createElement('div');
+    overlay.className = 'pmp-modal-overlay';
+    overlay.innerHTML = `
+      <div class="pmp-modal">
+        <div class="pmp-modal-header">
+          <h3>Mark Day as Leave</h3>
+          <button class="pmp-modal-close">&times;</button>
+        </div>
+        <form id="pmp-ts-leave-form">
+          <p style="font-size:13px; color:var(--pmp-text-muted); margin-top:0;">This clears all entries for this date and replaces them with a single Leave entry.</p>
+          <div class="pmp-form-grid">
+            <div class="pmp-form-row">
+              <label>Start</label>
+              <input type="time" name="startTime" value="09:30" required>
+            </div>
+            <div class="pmp-form-row">
+              <label>End</label>
+              <input type="time" name="endTime" value="19:30" required>
+            </div>
+          </div>
+          <div class="pmp-form-row">
+            <label>Notes (reason, optional)</label>
+            <textarea name="notes" rows="3" placeholder="e.g. Sick leave, Personal leave"></textarea>
+          </div>
+          <div style="display:flex; justify-content:flex-end; gap:8px;">
+            <button type="button" class="pmp-btn pmp-modal-cancel">Cancel</button>
+            <button type="submit" class="pmp-btn pmp-btn-primary">Mark as Leave</button>
+          </div>
+        </form>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.querySelector('.pmp-modal-close').addEventListener('click', close);
+    overlay.querySelector('.pmp-modal-cancel').addEventListener('click', close);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+    overlay.querySelector('#pmp-ts-leave-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      state.editRows = [{
+        localId: 'leave-' + Date.now(),
+        assignmentId: '',
+        clientName: '',
+        projectName: '',
+        taskName: 'Leave',
+        dimension: '',
+        startTime: fd.get('startTime'),
+        endTime: fd.get('endTime'),
+        notes: fd.get('notes') || '',
+        source: 'Leave',
+        locked: true,
+        submitted: false
+      }];
+      close();
+      renderEdit();
+    });
   }
 
   function addManualRow() {
