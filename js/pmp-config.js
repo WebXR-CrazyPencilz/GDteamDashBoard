@@ -4,7 +4,7 @@
  */
 
 const PMP_CONFIG = {
-  API_URL: 'https://script.google.com/macros/s/AKfycbwgh_b9Sjv_mAVcgXQhQwyEq_7c66nOa7VPUxKnig8wGIDYhc6a8WA0KZDetVYE66Hd/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbz_UdYK_bFkQS5aBLU6S4W-O7QV3WTc6fF3cmIAHiWFGERCIPFkcYjgP19Lf1M1njkt/exec',
 
   // No "Accepted" state — employees never accept work, they start it. First
   // "Start Work" click auto-transitions Assigned -> Working.

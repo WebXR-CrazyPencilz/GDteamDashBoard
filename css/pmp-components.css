@@ -6,6 +6,14 @@
   padding: var(--pmp-space-4);
 }
 
+/* Opt-in modifier for views that want to use more of a wide screen (e.g.
+   the Employee Dashboard's multi-column grid) without changing the default
+   --pmp-max-width everywhere else. Add alongside .pmp-container, don't
+   replace it, so padding/margin behavior stays identical. */
+.pmp-container-wide {
+  max-width: 1600px;
+}
+
 /* --- Topbar --- */
 .pmp-topbar {
   display: flex;

@@ -167,15 +167,21 @@ const PmpAttendance = (function () {
     const workingDaysCount = workingDates.size;
 
     let noActivityDays = 0;
+    let leaveDays = 0;
     for (let d = new Date(monthStart); d <= lastRelevantDay; d.setDate(d.getDate() + 1)) {
       const dateStr = PmpUtils.toLocalDateStr(d);
-      if (!workingDates.has(dateStr)) noActivityDays++;
+      if (isDateOnLeave(dateStr)) {
+        leaveDays++;
+      } else if (!workingDates.has(dateStr)) {
+        noActivityDays++;
+      }
     }
 
     return `
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:12px; margin-bottom:20px;">
         ${summaryCard('Total Hours (all time)', formatDuration(totalAllTimeMinutes), 'var(--status-working)')}
         ${summaryCard('Working Days (this month)', String(workingDaysCount), 'var(--status-completed)')}
+        ${summaryCard('Leave Days (this month)', String(leaveDays), 'var(--status-review)')}
         ${summaryCard('No-Activity Days (this month)', String(noActivityDays), 'var(--status-delayed)')}
         ${summaryCard("This Month's Hours", formatDuration(monthMinutes), 'var(--status-review)')}
       </div>
@@ -220,7 +226,25 @@ const PmpAttendance = (function () {
 
   function dayRowHtml(date, intervals) {
     const dateLabel = date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+    const dateStr = PmpUtils.toLocalDateStr(date);
+    const leaveEntry = findLeaveEntry(dateStr);
     const hasActivity = intervals.length > 0;
+
+    // A real submitted Leave record always wins over "no activity" — this
+    // is verified data (the employee explicitly submitted it), not an
+    // inference from an empty ActivityLog. Shown even on a day that also
+    // happens to have some activity (e.g. half-day leave), since the Leave
+    // submission itself is still a fact worth surfacing either way.
+    if (leaveEntry) {
+      return `
+        <div style="display:flex; align-items:center; gap:12px; padding:8px 0; border-bottom:1px solid var(--pmp-border, #eee);">
+          <span class="pmp-badge" style="min-width:60px; text-align:center;">${dateLabel}</span>
+          <span class="pmp-badge" style="background:var(--status-review); color:#fff;">Leave</span>
+          <div style="flex:1; color:var(--pmp-text-muted); font-size:12px;">${leaveEntry.Notes ? PmpUtils.escapeHtml(leaveEntry.Notes) : '—'}</div>
+          ${hasActivity ? `<span style="font-size:12px; color:var(--pmp-text-muted);">Also logged ${formatDuration(intervals.reduce((s, iv) => s + minutesBetween(iv.start, iv.end), 0))}</span>` : ''}
+        </div>
+      `;
+    }
 
     if (!hasActivity) {
       return `
@@ -348,6 +372,20 @@ const PmpAttendance = (function () {
   // time range. Overlap (not exact equality) so a minor time correction
   // made during Submit still counts — the interval it came from is
   // considered covered, not left showing as unsubmitted.
+  // Real Leave record check — a submitted Timesheet entry with
+  // Source === 'Leave' (see pmp-timesheet.js markDayAsLeave), never an
+  // inference from an empty ActivityLog. Per the "Holiday/No-Activity !=
+  // Leave" rule: a day with zero logged work is just unverified silence,
+  // not evidence of leave, so this only ever returns true when an actual
+  // Leave row was submitted for that date.
+  function findLeaveEntry(dateStr) {
+    return state.submittedEntries.find(e => e.Date === dateStr && e.Source === 'Leave') || null;
+  }
+
+  function isDateOnLeave(dateStr) {
+    return !!findLeaveEntry(dateStr);
+  }
+
   function isIntervalSubmitted(iv) {
     const ivStart = new Date(iv.start).getTime();
     const ivEnd = new Date(iv.end).getTime();

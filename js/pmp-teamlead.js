@@ -23,7 +23,7 @@ const PmpTeamLead = (function () {
     projects: [],
     clients: [],
     containerId: null,
-    activeTab: 'assignments',
+    activeTab: 'dashboard',
     filters: { status: 'All', priority: 'All', assignedTo: 'All' }
   };
 
@@ -59,8 +59,10 @@ const PmpTeamLead = (function () {
   function renderShell() {
     container().innerHTML = `
       <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
-        <button class="pmp-btn pmp-btn-primary" data-tab="assignments">Assignments</button>
+        <button class="pmp-btn pmp-btn-primary" data-tab="dashboard">Dashboard</button>
+        <button class="pmp-btn" data-tab="assignments">Assignments</button>
         <button class="pmp-btn" data-tab="attendance">Attendance</button>
+        <button class="pmp-btn" data-tab="timesheet">Timesheet</button>
         <button class="pmp-btn" data-tab="projects">Projects</button>
         <button class="pmp-btn" data-tab="clients">Clients</button>
         <button class="pmp-btn" data-tab="team">Employees</button>
@@ -107,17 +109,32 @@ const PmpTeamLead = (function () {
     });
 
     const newBtn = document.getElementById('pmp-tl-new-btn');
-    const newBtnLabels = { assignments: '+ New Task', projects: '+ New Project', clients: '+ New Client', team: '', attendance: '' };
+    const newBtnLabels = { assignments: '+ New Task', projects: '+ New Project', clients: '+ New Client', team: '', attendance: '', timesheet: '', dashboard: '' };
     newBtn.textContent = newBtnLabels[state.activeTab] || '';
     newBtn.style.display = newBtn.textContent ? 'inline-block' : 'none';
 
     const content = document.getElementById('pmp-tl-content');
     if (!content) return;
 
+    if (state.activeTab === 'dashboard') {
+      PmpTeamLeadDashboard.init('pmp-tl-content', state.teamLeadId, {
+        onNavigate: ({ target }) => {
+          if (target === 'assignments') {
+            state.activeTab = 'assignments';
+            render();
+          }
+        }
+      });
+      return;
+    }
+
     // Timesheet is its own self-sufficient module (own state, own data
     // fetch) rather than a plain render function like Projects/Clients —
-    // it reads ActivityLog, which nothing else on this tab needs.
+    // it reads ActivityLog, which nothing else on this tab needs. Reuses
+    // the exact same 'view' mode Manager gets — no separate Team Lead
+    // timesheet logic to keep in sync with it.
     if (state.activeTab === 'attendance') { PmpAttendance.init('pmp-tl-content'); return; }
+    if (state.activeTab === 'timesheet') { PmpTimesheet.init('pmp-tl-content', { mode: 'view' }); return; }
     if (state.activeTab === 'projects') { renderProjects(content); return; }
     if (state.activeTab === 'clients') { renderClients(content); return; }
 

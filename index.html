@@ -14,7 +14,7 @@
     <div class="pmp-card">
       <div class="pmp-brand" style="margin-bottom:16px;">
         <div class="pmp-brand-mark"></div>
-        <span>PMP</span>
+        <span>PMP · GD Team</span>
       </div>
       <h2 style="font-size:18px;">Sign in</h2>
       <form id="pmp-login-form">
@@ -40,6 +40,8 @@
         <span>PMP · Manager — <span id="pmp-mgr-user-name"></span></span>
       </div>
       <div class="pmp-user-chip">
+        <button class="pmp-btn" id="pmp-mgr-profile-nav-btn">Profile</button>
+        <button class="pmp-btn" id="pmp-mgr-theme-toggle-btn">🌙</button>
         <button class="pmp-btn" id="pmp-logout-btn">Log out</button>
       </div>
     </div>
@@ -62,14 +64,18 @@
       </div>
       <div class="pmp-user-chip">
         <span id="pmp-emp-user-name"></span>
-        <button class="pmp-btn pmp-btn-primary" id="pmp-emp-mytasks-nav-btn">My Tasks</button>
+        <button class="pmp-btn pmp-btn-primary" id="pmp-emp-dashboard-nav-btn">Dashboard</button>
+        <button class="pmp-btn" id="pmp-emp-mytasks-nav-btn">My Tasks</button>
         <button class="pmp-btn" id="pmp-emp-timesheet-nav-btn">Timesheet</button>
         <button class="pmp-btn" id="pmp-emp-inbox-nav-btn">Inbox <span id="pmp-emp-inbox-badge" class="pmp-badge" style="display:none; background:var(--status-assigned); color:#fff;"></span></button>
+        <button class="pmp-btn" id="pmp-emp-profile-nav-btn">Profile</button>
+        <button class="pmp-btn" id="pmp-emp-theme-toggle-btn">🌙</button>
         <button class="pmp-btn" id="pmp-emp-logout-btn">Log out</button>
       </div>
     </div>
-    <div class="pmp-container">
-      <div id="pmp-employee-module"></div>
+    <div class="pmp-container pmp-container-wide">
+      <div id="pmp-emp-dashboard-module"></div>
+      <div id="pmp-employee-module" style="display:none;"></div>
       <div id="pmp-emp-timesheet-module" style="display:none;"></div>
       <div id="pmp-emp-inbox-module" style="display:none;"></div>
     </div>
@@ -84,6 +90,8 @@
       </div>
       <div class="pmp-user-chip">
         <button class="pmp-btn" id="pmp-tl-inbox-nav-btn">Inbox <span id="pmp-tl-inbox-badge" class="pmp-badge" style="display:none; background:var(--status-assigned); color:#fff;"></span></button>
+        <button class="pmp-btn" id="pmp-tl-profile-nav-btn">Profile</button>
+        <button class="pmp-btn" id="pmp-tl-theme-toggle-btn">🌙</button>
         <button class="pmp-btn" id="pmp-tl-logout-btn">Log out</button>
       </div>
     </div>
@@ -101,7 +109,9 @@
   <script src="js/pmp-attendance.js"></script>
   <script src="js/pmp-assignment.js"></script>
   <script src="js/pmp-employees.js"></script>
+  <script src="js/pmp-dashboard.js"></script>
   <script src="js/pmp-employee.js"></script>
+  <script src="js/pmp-teamlead-dashboard.js"></script>
   <script src="js/pmp-teamlead.js"></script>
   <script>
     // Role-based routing at login — same pattern as TimeTrack's index.html
@@ -118,6 +128,8 @@
         await PmpAssignment.init('pmp-assignment-module');
         await PmpEmployees.init('pmp-employees-module');
         setupManagerNav();
+        document.getElementById('pmp-mgr-profile-nav-btn').addEventListener('click', () => openProfileModal(session));
+        wireThemeToggle('pmp-mgr-theme-toggle-btn');
         // Manager isn't wired to the Work Inbox — the backend only fires
         // notifications at whoever a Task gets assigned to, and Manager
         // doesn't currently receive assignments. Add setupInboxNav here
@@ -134,11 +146,27 @@
           recipientId: session.employeeId,
           onOpenTask: ({ taskId }) => highlightElement('[data-task-card="' + taskId + '"]')
         });
+        document.getElementById('pmp-tl-profile-nav-btn').addEventListener('click', () => openProfileModal(session));
+        wireThemeToggle('pmp-tl-theme-toggle-btn');
       } else {
         showView('pmp-employee-portal');
         document.getElementById('pmp-emp-user-name').textContent = session.name;
         await PmpEmployee.init('pmp-employee-module', session.employeeId);
         await setupEmployeePanels(session);
+        document.getElementById('pmp-emp-profile-nav-btn').addEventListener('click', () => openProfileModal(session));
+        wireThemeToggle('pmp-emp-theme-toggle-btn');
+        await PmpDashboard.init('pmp-emp-dashboard-module', session.employeeId, {
+          onNavigate: ({ target, extra }) => {
+            if (target === 'timesheet') {
+              document.getElementById('pmp-emp-timesheet-nav-btn').click();
+            } else if (target === 'mytasks' || target === 'mytasks-filter') {
+              document.getElementById('pmp-emp-mytasks-nav-btn').click();
+              if (target === 'mytasks' && extra) {
+                setTimeout(() => highlightElement('[data-assignment-card="' + extra + '"]'), 50);
+              }
+            }
+          }
+        });
       }
     }
 
@@ -148,6 +176,7 @@
     // setupInboxNav's binary toggle.
     async function setupEmployeePanels(session) {
       const panels = {
+        dashboard: { navBtnId: 'pmp-emp-dashboard-nav-btn', moduleId: 'pmp-emp-dashboard-module' },
         mytasks: { navBtnId: 'pmp-emp-mytasks-nav-btn', moduleId: 'pmp-employee-module' },
         timesheet: { navBtnId: 'pmp-emp-timesheet-nav-btn', moduleId: 'pmp-emp-timesheet-module' },
         inbox: { navBtnId: 'pmp-emp-inbox-nav-btn', moduleId: 'pmp-emp-inbox-module' }
@@ -161,6 +190,11 @@
           document.getElementById(panels[k].navBtnId).classList.toggle('pmp-btn-primary', k === key);
         });
       }
+
+      document.getElementById(panels.dashboard.navBtnId).addEventListener('click', async () => {
+        showPanel('dashboard');
+        await PmpDashboard.refresh();
+      });
 
       document.getElementById(panels.mytasks.navBtnId).addEventListener('click', () => showPanel('mytasks'));
 
@@ -192,7 +226,7 @@
         }
       });
 
-      showPanel('mytasks'); // default view on portal open
+      showPanel('dashboard'); // default view on portal open
     }
 
     // Shared by the Team Lead and Employee portals: loads the Inbox into its
@@ -250,6 +284,103 @@
       setTimeout(() => { el.style.boxShadow = originalBoxShadow; }, 1500);
     }
 
+    // Shared across all three portals — shows read-only account info
+    // (Name / Role / Employee ID) and a Change Password form that requires
+    // the current password before accepting a new one (see
+    // pmp_changeOwnPassword in Code.gs). Session itself doesn't store the
+    // password, so nothing here needs updating in localStorage on success.
+    // Shared across all three portals — flips light/dark and updates the
+    // button's icon to reflect the CURRENT state after the switch.
+    function wireThemeToggle(btnId) {
+      const btn = document.getElementById(btnId);
+      const render = () => { btn.textContent = PmpUtils.getTheme() === 'dark' ? '☀️' : '🌙'; };
+      render();
+      btn.addEventListener('click', () => {
+        PmpUtils.setTheme(PmpUtils.getTheme() === 'dark' ? 'light' : 'dark');
+        render();
+      });
+    }
+
+    function openProfileModal(session) {
+      const overlay = document.createElement('div');
+      overlay.className = 'pmp-modal-overlay';
+      overlay.innerHTML = `
+        <div class="pmp-modal">
+          <div class="pmp-modal-header">
+            <h3>My Profile</h3>
+            <button class="pmp-modal-close">&times;</button>
+          </div>
+          <div class="pmp-form-row"><label>Name</label><div>${PmpUtils.escapeHtml(session.name)}</div></div>
+          <div class="pmp-form-grid">
+            <div class="pmp-form-row"><label>Role</label><div>${PmpUtils.escapeHtml(session.role === 'TeamLead' ? 'Team Lead' : session.role)}</div></div>
+            <div class="pmp-form-row"><label>Employee ID</label><div>${PmpUtils.escapeHtml(session.employeeId)}</div></div>
+          </div>
+          <hr style="border:none; border-top:1px solid var(--pmp-border, #eee); margin:16px 0;">
+          <h3 style="margin:0 0 12px 0; font-size:14px;">Change Password</h3>
+          <form id="pmp-profile-pw-form">
+            <div class="pmp-form-row">
+              <label>Current Password</label>
+              <input type="password" name="currentPassword" required autocomplete="current-password">
+            </div>
+            <div class="pmp-form-row">
+              <label>New Password</label>
+              <input type="password" name="newPassword" required minlength="4" autocomplete="new-password">
+            </div>
+            <div class="pmp-form-row">
+              <label>Confirm New Password</label>
+              <input type="password" name="confirmPassword" required minlength="4" autocomplete="new-password">
+            </div>
+            <p id="pmp-profile-pw-error" style="color:var(--status-delayed); font-size:12px; display:none;"></p>
+            <p id="pmp-profile-pw-success" style="color:var(--status-completed); font-size:12px; display:none;">Password updated.</p>
+            <div style="display:flex; justify-content:flex-end; gap:8px;">
+              <button type="button" class="pmp-btn pmp-modal-cancel">Close</button>
+              <button type="submit" class="pmp-btn pmp-btn-primary">Update password</button>
+            </div>
+          </form>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+
+      const close = () => overlay.remove();
+      overlay.querySelector('.pmp-modal-close').addEventListener('click', close);
+      overlay.querySelector('.pmp-modal-cancel').addEventListener('click', close);
+      overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+      overlay.querySelector('#pmp-profile-pw-form').addEventListener('submit', async e => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const errorEl = document.getElementById('pmp-profile-pw-error');
+        const successEl = document.getElementById('pmp-profile-pw-success');
+        errorEl.style.display = 'none';
+        successEl.style.display = 'none';
+
+        if (fd.get('newPassword') !== fd.get('confirmPassword')) {
+          errorEl.textContent = 'New password and confirmation do not match';
+          errorEl.style.display = 'block';
+          return;
+        }
+
+        const submitBtn = e.target.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+
+        const res = await PmpApi.changeOwnPassword({
+          employeeId: session.employeeId,
+          currentPassword: fd.get('currentPassword'),
+          newPassword: fd.get('newPassword')
+        });
+
+        if (res.success) {
+          successEl.style.display = 'block';
+          e.target.reset();
+          PmpUtils.toast('Password updated', 'success');
+        } else {
+          errorEl.textContent = res.error || 'Could not update password';
+          errorEl.style.display = 'block';
+        }
+        submitBtn.disabled = false;
+      });
+    }
+
     function setupManagerNav() {
       const workBtn = document.getElementById('pmp-nav-work');
       const peopleBtn = document.getElementById('pmp-nav-people');
@@ -301,6 +432,7 @@
 
     // Restore session on load
     (function bootstrap() {
+      PmpUtils.applyTheme(PmpUtils.getTheme()); // before any view renders, so there's no light-mode flash
       const session = PmpUtils.getSession();
       if (session) {
         routeToPortal(session);

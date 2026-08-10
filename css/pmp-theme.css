@@ -51,6 +51,47 @@
 
 * { box-sizing: border-box; }
 
+/**
+ * Dark mode — same semantic variable names, different values. Every
+ * component already reads --pmp-bg / --pmp-card / --pmp-text / etc rather
+ * than hardcoded colors (see pmp-components.css), so this block is the
+ * ONLY place dark mode needs to be defined. Status/priority colors keep
+ * their same hue identity (amber = working, red = delayed, green =
+ * completed) just tuned for contrast against a dark surface, so a color's
+ * meaning never flips between themes.
+ *
+ * Applied via [data-theme="dark"] on <html> — see PmpUtils.applyTheme() /
+ * getTheme() / setTheme() in pmp-utils.js for how it's toggled and
+ * persisted (localStorage, same pattern as the session key).
+ */
+html[data-theme="dark"] {
+  --pmp-bg: #1C1A16;
+  --pmp-card: #26231D;
+  --pmp-border: #3A362C;
+  --pmp-border-strong: #4A4436;
+
+  --pmp-text: #EDE8DC;
+  --pmp-text-muted: #A8A093;
+  --pmp-text-on-primary: #2E2408;
+
+  --status-assigned: #E0C24C;
+  --status-accepted: #C9A83F;
+  --status-working: #E0A93A;
+  --status-review: #C98A3B;
+  --status-completed: #7FBF8A;
+  --status-closed: #7A756B;
+  --status-delayed: #E36863;
+
+  --priority-low: #8B867B;
+  --priority-medium: #E0A93A;
+  --priority-high: #E36863;
+}
+
+html[data-theme="dark"] .pmp-btn:hover { background: #322E24; }
+html[data-theme="dark"] .pmp-table th { background: #211E18; }
+html[data-theme="dark"] .pmp-table tr:hover td { background: #2B2820; }
+html[data-theme="dark"] .pmp-btn-danger:hover { background: #3A2523; }
+
 body {
   margin: 0;
   background: var(--pmp-bg);
@@ -58,6 +99,7 @@ body {
   font-family: var(--pmp-font-body);
   font-size: 14px;
   line-height: 1.5;
+  transition: background 0.15s, color 0.15s;
 }
 
 h1, h2, h3 {

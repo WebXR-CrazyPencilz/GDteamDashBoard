@@ -171,6 +171,27 @@ const PmpUtils = (function () {
       .replace(/"/g, '&quot;');
   }
 
+  function getTheme() {
+    try {
+      return localStorage.getItem('pmp_theme') === 'dark' ? 'dark' : 'light';
+    } catch (e) {
+      return 'light';
+    }
+  }
+
+  function setTheme(theme) {
+    const value = theme === 'dark' ? 'dark' : 'light';
+    try { localStorage.setItem('pmp_theme', value); } catch (e) { /* ignore */ }
+    applyTheme(value);
+  }
+
+  // Sets the data-theme attribute the dark-mode CSS block in pmp-theme.css
+  // keys off. Call this once at load (before/while rendering the login or
+  // portal view) to avoid a light-mode flash for someone who saved 'dark'.
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
+  }
+
   function getSession() {
     try {
       return JSON.parse(localStorage.getItem(PMP_CONFIG.SESSION_KEY));
@@ -200,6 +221,9 @@ const PmpUtils = (function () {
     escapeHtml,
     getSession,
     setSession,
-    clearSession
+    clearSession,
+    getTheme,
+    setTheme,
+    applyTheme
   };
 })();

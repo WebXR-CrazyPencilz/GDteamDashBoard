@@ -38,7 +38,8 @@ const PmpTimesheet = (function () {
     containerId: null,
     filters: {
       date: PmpUtils.toLocalDateStr(new Date()),
-      employeeId: 'All' // 'view' mode only
+      employeeId: 'All', // 'view' mode only
+      team: 'All' // 'view' mode only — 'All' | 'GD' (projects whose ID starts with GDP-)
     }
   };
 
@@ -80,8 +81,19 @@ const PmpTimesheet = (function () {
           <select id="pmp-ts-employee">
             <option value="All">All employees</option>
           </select>
+          <select id="pmp-ts-team-filter">
+            <option value="All">All teams</option>
+            <option value="GD">GD Team</option>
+          </select>
         ` : ''}
-        ${state.mode === 'edit' ? `<div style="flex:1;"></div><button class="pmp-btn" id="pmp-ts-mark-leave-btn">Mark Day as Leave</button><button class="pmp-btn" id="pmp-ts-add-lunch-btn">+ Add Lunch</button><button class="pmp-btn" id="pmp-ts-add-row-btn">+ Add Manual Entry</button><button class="pmp-btn pmp-btn-primary" id="pmp-ts-save-btn">Save Whole Day</button>` : ''}
+        ${state.mode === 'edit' ? `
+          <div id="pmp-ts-total" style="font-size:13px; color:var(--pmp-text-muted); font-weight:600;"></div>
+          <div style="flex:1;"></div>
+          <button class="pmp-btn" id="pmp-ts-mark-leave-btn">Mark Day as Leave</button>
+          <button class="pmp-btn" id="pmp-ts-add-lunch-btn">+ Add Lunch</button>
+          <button class="pmp-btn" id="pmp-ts-add-row-btn">+ Add Manual Entry</button>
+          <button class="pmp-btn pmp-btn-primary" id="pmp-ts-save-btn">Save Day</button>
+        ` : ''}
       </div>
       <div id="pmp-ts-content"></div>
     `;
@@ -94,6 +106,10 @@ const PmpTimesheet = (function () {
     if (state.mode === 'view') {
       document.getElementById('pmp-ts-employee').addEventListener('change', e => {
         state.filters.employeeId = e.target.value;
+        renderView();
+      });
+      document.getElementById('pmp-ts-team-filter').addEventListener('change', e => {
+        state.filters.team = e.target.value;
         renderView();
       });
     } else {
@@ -155,10 +171,11 @@ const PmpTimesheet = (function () {
 
     const intervals = PmpUtils.computeWorkIntervals(state.activityLog)
       .filter(iv => PmpUtils.toLocalDateStr(iv.start) === state.filters.date)
-      .filter(iv => state.filters.employeeId === 'All' || iv.EmployeeID === state.filters.employeeId);
+      .filter(iv => state.filters.employeeId === 'All' || iv.EmployeeID === state.filters.employeeId)
+      .filter(iv => state.filters.team === 'All' || isGdTeamInterval(iv));
 
     if (intervals.length === 0) {
-      content.innerHTML = `<div class="pmp-empty">No work logged for this date.</div>`;
+      content.innerHTML = `<div class="pmp-empty">${state.filters.team === 'GD' ? 'No GD Team work logged for this date.' : 'No work logged for this date.'}</div>`;
       return;
     }
 
@@ -205,6 +222,16 @@ const PmpTimesheet = (function () {
         </table>
       </div>
     `;
+  }
+
+  // "GD Team" = anyone with work logged against a project whose ProjectID
+  // starts with "GDP-" (that prefix convention, not a real team/department
+  // field — PMP deliberately has no fixed-team concept on Employees).
+  function isGdTeamInterval(iv) {
+    const assignment = state.assignments.find(a => a.AssignmentID === iv.AssignmentID);
+    const task = assignment ? state.tasks.find(t => t.TaskID === assignment.TaskID) : null;
+    const projectId = task ? task.ProjectID : (assignment ? assignment.ProjectID : '');
+    return String(projectId || '').toUpperCase().indexOf('GDP-') === 0;
   }
 
   function employeeName(employeeId) {
@@ -372,12 +399,21 @@ const PmpTimesheet = (function () {
     const content = document.getElementById('pmp-ts-content');
     if (!content) return;
 
+    const totalEl = document.getElementById('pmp-ts-total');
+    if (totalEl) {
+      const totalMins = state.editRows.reduce((sum, r) => {
+        if (!r.startTime || !r.endTime) return sum;
+        return sum + minutesBetweenTimeStrings(r.startTime, r.endTime);
+      }, 0);
+      totalEl.textContent = totalMins > 0 ? `Total: ${formatDuration(totalMins)}` : '';
+    }
+
     if (state.editRows.length === 0) {
       content.innerHTML = `<div class="pmp-empty">Nothing logged for this date yet. Use "+ Add Manual Entry" to add something.</div>`;
       return;
     }
 
-    content.innerHTML = state.editRows.map(rowHtml).join('');
+    content.innerHTML = `<div class="pmp-ts-row-list">${state.editRows.map(rowHtml).join('')}</div>`;
 
     content.querySelectorAll('[data-delete-row]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -388,40 +424,78 @@ const PmpTimesheet = (function () {
     content.querySelectorAll('[data-submit-row]').forEach(btn => {
       btn.addEventListener('click', () => submitRow(btn.dataset.submitRow));
     });
+    content.querySelectorAll('input[data-row]').forEach(input => {
+      input.addEventListener('change', () => {
+        const row = state.editRows.find(r => r.localId === input.dataset.row);
+        if (row) { row[input.dataset.field] = input.value; renderEdit(); }
+      });
+    });
+  }
+
+  // Same-day duration only (breaks/tasks never span midnight in this UI).
+  function minutesBetweenTimeStrings(start, end) {
+    const [sh, sm] = start.split(':').map(Number);
+    const [eh, em] = end.split(':').map(Number);
+    if (isNaN(sh) || isNaN(eh)) return 0;
+    return Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
+  }
+
+  const ROW_ICONS = {
+    Suggested: '\u{1F5C2}\uFE0F', // computed from ActivityLog
+    Manual: '\u270E',
+    Leave: '\u{1F3D6}\uFE0F'
+  };
+  const FIXED_BREAK_NAMES = ['lunch break', 'tea break'];
+
+  function rowIcon(row) {
+    if (FIXED_BREAK_NAMES.indexOf((row.taskName || '').toLowerCase()) !== -1) return '\u2615';
+    return ROW_ICONS[row.source] || '\u2022';
+  }
+
+  function rowAccentColor(row) {
+    if (row.taskName === 'Leave') return 'var(--status-delayed)';
+    if (FIXED_BREAK_NAMES.indexOf((row.taskName || '').toLowerCase()) !== -1) return 'var(--status-review)';
+    if (row.source === 'Suggested') return 'var(--status-working)';
+    return 'var(--pmp-border, #ddd)';
   }
 
   function rowHtml(row) {
+    const isFixedBreak = FIXED_BREAK_NAMES.indexOf((row.taskName || '').toLowerCase()) !== -1;
+    const mins = (row.startTime && row.endTime) ? minutesBetweenTimeStrings(row.startTime, row.endTime) : 0;
+
     const taskField = row.locked
-      ? `<div class="pmp-assignment-title">${PmpUtils.escapeHtml(row.taskName || 'Untitled task')}</div>`
-      : `<input type="text" data-field="taskName" data-row="${row.localId}" value="${PmpUtils.escapeHtml(row.taskName)}" placeholder="e.g. Team meeting" style="font-weight:600; font-size:15px; border:none; background:transparent; padding:2px 0; width:100%;">`;
+      ? `<div class="pmp-assignment-title" style="font-size:14px;">${PmpUtils.escapeHtml(row.taskName || 'Untitled task')}</div>`
+      : `<input type="text" data-field="taskName" data-row="${row.localId}" value="${PmpUtils.escapeHtml(row.taskName)}" placeholder="e.g. Team meeting" style="font-weight:600; font-size:14px; border:none; background:transparent; padding:2px 0; width:100%;">`;
 
     const metaBits = [];
     if (row.clientName) metaBits.push(`<span>${PmpUtils.escapeHtml(row.clientName)}</span>`);
     if (row.projectName) metaBits.push(`<span>${PmpUtils.escapeHtml(row.projectName)}</span>`);
 
     return `
-      <div class="pmp-card" data-row-id="${row.localId}" style="margin-bottom:12px;">
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
+      <div class="pmp-card pmp-ts-row" data-row-id="${row.localId}" style="border-left:3px solid ${rowAccentColor(row)}; padding:12px 14px; margin-bottom:10px;">
+        <div style="display:flex; align-items:flex-start; gap:10px;">
+          <div style="font-size:16px; line-height:1.4; flex-shrink:0;">${rowIcon(row)}</div>
           <div style="flex:1; min-width:220px;">
             ${taskField}
-            <div class="pmp-assignment-meta" style="margin-top:4px; align-items:center;">
+            <div class="pmp-assignment-meta" style="margin-top:2px; align-items:center; font-size:11px;">
               ${metaBits.join('')}
-              <input type="text" data-field="dimension" data-row="${row.localId}" value="${PmpUtils.escapeHtml(row.dimension)}" placeholder="Dimension" style="border:1px solid var(--pmp-border, #ddd); border-radius:4px; padding:2px 6px; font-size:12px; width:120px;">
+              ${isFixedBreak ? '' : `<input type="text" data-field="dimension" data-row="${row.localId}" value="${PmpUtils.escapeHtml(row.dimension)}" placeholder="Dimension" style="border:1px solid var(--pmp-border, #ddd); border-radius:4px; padding:2px 6px; font-size:11px; width:110px;">`}
             </div>
           </div>
-          <div style="display:flex; align-items:center; gap:8px;">
-            <input type="time" data-field="startTime" data-row="${row.localId}" value="${row.startTime}">
-            <span style="color:var(--pmp-text-muted); font-size:13px;">to</span>
-            <input type="time" data-field="endTime" data-row="${row.localId}" value="${row.endTime}">
+          <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+            <input type="time" data-field="startTime" data-row="${row.localId}" value="${row.startTime}" style="font-size:12px;">
+            <span style="color:var(--pmp-text-muted); font-size:12px;">–</span>
+            <input type="time" data-field="endTime" data-row="${row.localId}" value="${row.endTime}" style="font-size:12px;">
+            ${mins > 0 ? `<span class="pmp-badge" style="margin-left:4px;">${formatDuration(mins)}</span>` : ''}
           </div>
         </div>
-        <div style="margin-top:10px;">
-          <input type="text" data-field="notes" data-row="${row.localId}" value="${PmpUtils.escapeHtml(row.notes)}" placeholder="Add notes..." style="width:100%; box-sizing:border-box;">
+        <div style="margin-top:8px; padding-left:26px;">
+          <input type="text" data-field="notes" data-row="${row.localId}" value="${PmpUtils.escapeHtml(row.notes)}" placeholder="Add notes..." style="width:100%; box-sizing:border-box; font-size:12px;">
         </div>
-        <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-top:10px;">
+        <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-top:8px; padding-left:26px;">
           ${row.submitted ? '<span class="pmp-badge" style="background:var(--status-completed); color:#fff;">Submitted</span>' : ''}
-          <button class="pmp-btn ${row.submitted ? '' : 'pmp-btn-primary'}" data-submit-row="${row.localId}">${row.submitted ? 'Update' : 'Submit'}</button>
-          <button class="pmp-btn pmp-btn-danger" data-delete-row="${row.localId}">Remove</button>
+          <button class="pmp-btn ${row.submitted ? '' : 'pmp-btn-primary'}" data-submit-row="${row.localId}" style="padding:4px 12px; font-size:12px;">${row.submitted ? 'Update' : 'Submit'}</button>
+          <button class="pmp-btn pmp-btn-danger" data-delete-row="${row.localId}" style="padding:4px 12px; font-size:12px;">Remove</button>
         </div>
       </div>
     `;

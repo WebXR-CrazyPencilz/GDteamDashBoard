@@ -32,6 +32,7 @@ const PmpApi = (function () {
   return {
     // Auth
     login: (username, password) => call('pmp_login', { username, password }),
+    changeOwnPassword: (data) => call('pmp_changeOwnPassword', data), // { employeeId, currentPassword, newPassword }
 
     // Clients
     getClients: () => call('pmp_getClients'),
