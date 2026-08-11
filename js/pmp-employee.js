@@ -141,8 +141,8 @@ const PmpEmployee = (function () {
       <div class="pmp-card pmp-assignment-card ${delayed ? 'is-delayed' : ''}" data-assignment-card="${assignment.AssignmentID}" style="border-left-color:${delayed ? 'var(--status-delayed)' : color};">
         <div class="pmp-assignment-title">${PmpUtils.escapeHtml(assignment.SubTask)}</div>
         <div class="pmp-assignment-meta">
-          <span>${PmpUtils.escapeHtml(project ? project.ProjectName : assignment.ProjectID)}</span>
-          ${client ? `<span>${PmpUtils.escapeHtml(client.ClientName)}</span>` : ''}
+          <span>${PmpUtils.escapeHtml(project ? project.ProjectName : assignment.ProjectID)}${project ? ` <span style="color:var(--pmp-text-muted); font-family:monospace; font-size:11px;">(${PmpUtils.escapeHtml(project.ProjectID)})</span>` : ''}</span>
+          ${client ? `<span>${PmpUtils.escapeHtml(client.ClientName)} <span style="color:var(--pmp-text-muted); font-family:monospace; font-size:11px;">(${PmpUtils.escapeHtml(client.ClientID)})</span></span>` : ''}
           ${assignment.Dimension ? `<span>${PmpUtils.escapeHtml(assignment.Dimension)}</span>` : ''}
         </div>
         <div class="pmp-assignment-meta">

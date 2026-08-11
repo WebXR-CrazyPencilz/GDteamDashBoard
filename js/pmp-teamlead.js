@@ -287,10 +287,12 @@ const PmpTeamLead = (function () {
 
   function clientCard(client) {
     const projectCount = state.projects.filter(p => p.ClientID === client.ClientID).length;
+    const color = PmpUtils.colorFromId(client.ClientID);
     return `
-      <div class="pmp-card">
+      <div class="pmp-card" style="border-top:4px solid ${color};">
         <div class="pmp-assignment-title">${PmpUtils.escapeHtml(client.ClientName)}</div>
         <div class="pmp-assignment-meta">
+          <span style="color:var(--pmp-text-muted); font-family:monospace;">${PmpUtils.escapeHtml(client.ClientID)}</span>
           <span>${PmpUtils.escapeHtml(client.ContactPerson || 'No contact set')}</span>
           <span>${projectCount} project${projectCount === 1 ? '' : 's'}</span>
         </div>
@@ -436,13 +438,16 @@ const PmpTeamLead = (function () {
   function taskBlock(group) {
     const task = group.task;
     const project = state.projects.find(p => p.ProjectID === task.ProjectID);
+    const client = project ? state.clients.find(c => c.ClientID === project.ClientID) : null;
+    const clientColor = client ? PmpUtils.colorFromId(client.ClientID) : 'var(--pmp-border, #ddd)';
     const delayed = group.assignments.some(a => PmpUtils.isDelayed({ Status: a.Status, DueDate: task.DueDate }));
 
     const rows = group.assignments.map(a => {
       const employee = state.team.find(e => e.employeeId === a.AssignedTo);
+      const empColor = PmpUtils.colorFromId(a.AssignedTo, 55);
       return `
         <tr>
-          <td>${PmpUtils.escapeHtml(employee ? employee.name : a.AssignedTo)} ${a.Status === 'Assigned' ? '<span class="pmp-badge" style="background:var(--status-assigned); color:#fff;">New Task</span>' : ''} ${a.IsPaused === true ? '<span class="pmp-badge" style="background:#B08D57; color:#fff;">Paused</span>' : ''}</td>
+          <td><span style="display:inline-flex; align-items:center; gap:6px;"><span style="width:8px; height:8px; border-radius:50%; background:${empColor}; display:inline-block; flex-shrink:0;"></span>${PmpUtils.escapeHtml(employee ? employee.name : a.AssignedTo)}</span> ${a.Status === 'Assigned' ? '<span class="pmp-badge" style="background:var(--status-assigned); color:#fff;">New Task</span>' : ''} ${a.IsPaused === true ? '<span class="pmp-badge" style="background:var(--status-review); color:#fff;">Paused</span>' : ''}</td>
           <td>
             <select class="pmp-status-select" data-status-select="${a.AssignmentID}" style="background:${PMP_CONFIG.STATUS_COLORS[a.Status] || '#eee'};">
               ${PMP_CONFIG.STATUS_FLOW.map(s => `<option value="${s}" ${s === a.Status ? 'selected' : ''}>${s}</option>`).join('')}
@@ -460,12 +465,13 @@ const PmpTeamLead = (function () {
     }).join('');
 
     return `
-      <div class="pmp-card" data-task-card="${task.TaskID}" style="margin-bottom:16px;">
+      <div class="pmp-card" data-task-card="${task.TaskID}" style="margin-bottom:16px; border-left:4px solid ${clientColor};">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
           <div>
             <div class="pmp-assignment-title">${PmpUtils.escapeHtml(task.TaskName)}</div>
             <div class="pmp-assignment-meta">
-              <span>${PmpUtils.escapeHtml(project ? project.ProjectName : task.ProjectID)}</span>
+              <span>${PmpUtils.escapeHtml(project ? project.ProjectName : task.ProjectID)}${project ? ` <span style="color:var(--pmp-text-muted); font-family:monospace; font-size:11px;">(${PmpUtils.escapeHtml(project.ProjectID)})</span>` : ''}</span>
+              ${client ? `<span style="display:inline-flex; align-items:center; gap:5px;"><span style="width:7px; height:7px; border-radius:50%; background:${clientColor}; display:inline-block;"></span>${PmpUtils.escapeHtml(client.ClientName)} <span style="color:var(--pmp-text-muted); font-family:monospace; font-size:11px;">(${PmpUtils.escapeHtml(client.ClientID)})</span></span>` : ''}
               ${task.Dimension ? `<span>${PmpUtils.escapeHtml(task.Dimension)}</span>` : ''}
               <span class="pmp-badge pmp-badge-priority-${task.Priority}">${PmpUtils.escapeHtml(task.Priority || '')}</span>
               <span>Due ${PmpUtils.formatDate(task.DueDate)} ${delayed ? '<span class="pmp-badge pmp-badge-delayed">Delayed</span>' : ''}</span>

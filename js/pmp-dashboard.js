@@ -327,8 +327,8 @@ const PmpDashboard = (function () {
             <div style="font-size:12px; color:var(--pmp-text-muted); margin-bottom:6px;">Currently Working On</div>
             <div class="pmp-assignment-title" style="font-size:17px;">${PmpUtils.escapeHtml(assignment.SubTask)}</div>
             <div class="pmp-assignment-meta" style="margin-top:6px;">
-              ${client ? `<span>${PmpUtils.escapeHtml(client.ClientName)}</span>` : ''}
-              ${project ? `<span>${PmpUtils.escapeHtml(project.ProjectName)}</span>` : ''}
+              ${project ? `<span>${PmpUtils.escapeHtml(project.ProjectName)} <span style="color:var(--pmp-text-muted); font-family:monospace; font-size:11px;">(${PmpUtils.escapeHtml(project.ProjectID)})</span></span>` : ''}
+              ${client ? `<span>${PmpUtils.escapeHtml(client.ClientName)} <span style="color:var(--pmp-text-muted); font-family:monospace; font-size:11px;">(${PmpUtils.escapeHtml(client.ClientID)})</span></span>` : ''}
               ${assignment.Dimension ? `<span>${PmpUtils.escapeHtml(assignment.Dimension)}</span>` : ''}
               <span class="pmp-badge pmp-badge-priority-${assignment.Priority}">${PmpUtils.escapeHtml(assignment.Priority || '')}</span>
               <span>Due ${PmpUtils.formatDate(assignment.DueDate)}</span>
@@ -407,7 +407,7 @@ const PmpDashboard = (function () {
         return `
           <div data-dash-open-task="${a.AssignmentID}" style="border-left:3px solid ${borderColor}; padding:8px 10px; margin-bottom:8px; cursor:pointer;">
             <div style="font-size:13px; font-weight:600;">${PmpUtils.escapeHtml(a.SubTask)}</div>
-            <div style="font-size:11px; color:var(--pmp-text-muted);">${project ? PmpUtils.escapeHtml(project.ProjectName) : ''}${client ? ' · ' + PmpUtils.escapeHtml(client.ClientName) : ''}</div>
+            <div style="font-size:11px; color:var(--pmp-text-muted);">${project ? PmpUtils.escapeHtml(project.ProjectName) + ' (' + PmpUtils.escapeHtml(project.ProjectID) + ')' : ''}${client ? ' · ' + PmpUtils.escapeHtml(client.ClientName) + ' (' + PmpUtils.escapeHtml(client.ClientID) + ')' : ''}</div>
             <div style="font-size:11px; color:var(--pmp-text-muted); margin-top:2px;">Due ${PmpUtils.formatDate(a.DueDate)}</div>
           </div>
         `;

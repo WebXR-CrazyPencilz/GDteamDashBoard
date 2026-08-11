@@ -56,7 +56,7 @@ const PmpEmployees = (function () {
     const rows = state.employees.map(emp => `
       <tr>
         <td>${PmpUtils.escapeHtml(emp.employeeId)}</td>
-        <td>${PmpUtils.escapeHtml(emp.name)}</td>
+        <td><span style="display:inline-flex; align-items:center; gap:8px;"><span style="width:9px; height:9px; border-radius:50%; background:${PmpUtils.colorFromId(emp.employeeId, 55)}; display:inline-block; flex-shrink:0;"></span>${PmpUtils.escapeHtml(emp.name)}</span></td>
         <td>${PmpUtils.escapeHtml(emp.username)}</td>
         <td><span class="pmp-badge" style="background:#F0E9D8;">${PmpUtils.escapeHtml(emp.role)}</span></td>
         <td>${emp.active

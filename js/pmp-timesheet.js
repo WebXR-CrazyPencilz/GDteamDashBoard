@@ -201,7 +201,7 @@ const PmpTimesheet = (function () {
       return `
         <tr>
           <td>${formatTime(iv.start)} – ${formatTime(iv.end)}</td>
-          <td>${joined.clientName ? PmpUtils.escapeHtml(joined.clientName) : '—'}</td>
+          <td>${joined.clientName ? `<span style="display:inline-flex; align-items:center; gap:5px;"><span style="width:7px; height:7px; border-radius:50%; background:${PmpUtils.colorFromId(joined.clientName)}; display:inline-block;"></span>${PmpUtils.escapeHtml(joined.clientName)}</span>` : '—'}</td>
           <td>${joined.projectName ? PmpUtils.escapeHtml(joined.projectName) : '—'}</td>
           <td>${joined.taskName ? PmpUtils.escapeHtml(joined.taskName) : '<span style="color:var(--pmp-text-muted);">Unknown task</span>'}</td>
           <td>${joined.dimension ? PmpUtils.escapeHtml(joined.dimension) : '—'}</td>
@@ -211,7 +211,7 @@ const PmpTimesheet = (function () {
     }).join('');
 
     return `
-      <div class="pmp-card" style="margin-bottom:16px;">
+      <div class="pmp-card" style="margin-bottom:16px; border-left:3px solid ${PmpUtils.colorFromId(employeeId, 55)};">
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <div class="pmp-assignment-title">${PmpUtils.escapeHtml(employeeName(employeeId))}</div>
           <span class="pmp-badge">${formatDuration(totalMinutes)} total</span>
@@ -468,7 +468,7 @@ const PmpTimesheet = (function () {
       : `<input type="text" data-field="taskName" data-row="${row.localId}" value="${PmpUtils.escapeHtml(row.taskName)}" placeholder="e.g. Team meeting" style="font-weight:600; font-size:14px; border:none; background:transparent; padding:2px 0; width:100%;">`;
 
     const metaBits = [];
-    if (row.clientName) metaBits.push(`<span>${PmpUtils.escapeHtml(row.clientName)}</span>`);
+    if (row.clientName) metaBits.push(`<span style="display:inline-flex; align-items:center; gap:5px;"><span style="width:7px; height:7px; border-radius:50%; background:${PmpUtils.colorFromId(row.clientName)}; display:inline-block;"></span>${PmpUtils.escapeHtml(row.clientName)}</span>`);
     if (row.projectName) metaBits.push(`<span>${PmpUtils.escapeHtml(row.projectName)}</span>`);
 
     return `

@@ -294,11 +294,11 @@ const PmpTeamLeadDashboard = (function () {
 
       return `
         <tr>
-          <td>${PmpUtils.escapeHtml(e.name)}</td>
+          <td><span style="display:inline-flex; align-items:center; gap:7px;"><span style="width:8px; height:8px; border-radius:50%; background:${PmpUtils.colorFromId(e.employeeId, 55)}; display:inline-block; flex-shrink:0;"></span>${PmpUtils.escapeHtml(e.name)}</span></td>
           <td><span style="display:inline-flex; align-items:center; gap:6px;"><span style="width:8px; height:8px; border-radius:50%; background:${STATUS_DOT[status]}; display:inline-block;"></span>${STATUS_LABELS[status]}</span></td>
           <td>${activeAssignment ? PmpUtils.escapeHtml(activeAssignment.SubTask) : '—'}</td>
-          <td>${client ? PmpUtils.escapeHtml(client.ClientName) : '—'}</td>
-          <td>${project ? PmpUtils.escapeHtml(project.ProjectName) : '—'}</td>
+          <td>${client ? `${PmpUtils.escapeHtml(client.ClientName)} <span style="color:var(--pmp-text-muted); font-family:monospace; font-size:10px;">(${PmpUtils.escapeHtml(client.ClientID)})</span>` : '—'}</td>
+          <td>${project ? `${PmpUtils.escapeHtml(project.ProjectName)} <span style="color:var(--pmp-text-muted); font-family:monospace; font-size:10px;">(${PmpUtils.escapeHtml(project.ProjectID)})</span>` : '—'}</td>
           <td>${activeAssignment ? `<span class="pmp-badge pmp-badge-priority-${activeAssignment.Priority}">${PmpUtils.escapeHtml(activeAssignment.Priority || '')}</span>` : '—'}</td>
           <td>${open ? formatTime(open.start) : '—'}</td>
         </tr>
@@ -333,7 +333,7 @@ const PmpTeamLeadDashboard = (function () {
       };
       return `
         <tr>
-          <td>${PmpUtils.escapeHtml(e.name)}</td>
+          <td><span style="display:inline-flex; align-items:center; gap:7px;"><span style="width:8px; height:8px; border-radius:50%; background:${PmpUtils.colorFromId(e.employeeId, 55)}; display:inline-block; flex-shrink:0;"></span>${PmpUtils.escapeHtml(e.name)}</span></td>
           <td>${counts.Assigned}</td>
           <td>${counts.Working}</td>
           <td>${counts.Review}</td>
@@ -371,7 +371,7 @@ const PmpTeamLeadDashboard = (function () {
         return `
           <div data-tld-open-task="${a.AssignmentID}" style="border-left:3px solid ${borderColor}; padding:8px 10px; margin-bottom:8px; cursor:pointer;">
             <div style="font-size:13px; font-weight:600;">${PmpUtils.escapeHtml(a.SubTask)}</div>
-            <div style="font-size:11px; color:var(--pmp-text-muted);">${employeeName(a.AssignedTo)} · ${project ? PmpUtils.escapeHtml(project.ProjectName) : ''}${client ? ' · ' + PmpUtils.escapeHtml(client.ClientName) : ''}</div>
+            <div style="font-size:11px; color:var(--pmp-text-muted);">${employeeName(a.AssignedTo)} · ${project ? PmpUtils.escapeHtml(project.ProjectName) + ' (' + PmpUtils.escapeHtml(project.ProjectID) + ')' : ''}${client ? ' · ' + PmpUtils.escapeHtml(client.ClientName) + ' (' + PmpUtils.escapeHtml(client.ClientID) + ')' : ''}</div>
             <div style="font-size:11px; color:var(--pmp-text-muted); margin-top:2px;">Due ${PmpUtils.formatDate(a.DueDate)}</div>
           </div>
         `;
@@ -398,7 +398,8 @@ const PmpTeamLeadDashboard = (function () {
         <tr data-tld-open-task="${a.AssignmentID}" style="cursor:pointer;">
           <td>${PmpUtils.escapeHtml(a.SubTask)}</td>
           <td>${employeeName(a.AssignedTo)}</td>
-          <td>${client ? PmpUtils.escapeHtml(client.ClientName) : '—'}</td>
+          <td>${project ? `${PmpUtils.escapeHtml(project.ProjectName)} <span style="color:var(--pmp-text-muted); font-family:monospace; font-size:10px;">(${PmpUtils.escapeHtml(project.ProjectID)})</span>` : '—'}</td>
+          <td>${client ? `${PmpUtils.escapeHtml(client.ClientName)} <span style="color:var(--pmp-text-muted); font-family:monospace; font-size:10px;">(${PmpUtils.escapeHtml(client.ClientID)})</span>` : '—'}</td>
           <td>${PmpUtils.formatDate(a.DueDate)}</td>
           <td style="color:var(--status-delayed); font-weight:700;">${days}d</td>
           <td><span class="pmp-badge" style="background:${PMP_CONFIG.STATUS_COLORS[a.Status] || '#eee'};">${PmpUtils.escapeHtml(a.Status)}</span></td>
@@ -410,7 +411,7 @@ const PmpTeamLeadDashboard = (function () {
       <div style="font-weight:600; margin-bottom:10px;">Overdue Tasks</div>
       ${overdue.length === 0 ? '<div class="pmp-empty" style="margin:0;">Nothing overdue. 🎉</div>' : `
       <table class="pmp-table">
-        <thead><tr><th>Task</th><th>Employee</th><th>Client</th><th>Due</th><th>Overdue</th><th>Status</th></tr></thead>
+        <thead><tr><th>Task</th><th>Employee</th><th>Project</th><th>Client</th><th>Due</th><th>Overdue</th><th>Status</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`}
     `;
@@ -436,7 +437,7 @@ const PmpTeamLeadDashboard = (function () {
           <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
             <div>
               <div style="font-size:13px; font-weight:600;">${PmpUtils.escapeHtml(a.SubTask)}</div>
-              <div style="font-size:11px; color:var(--pmp-text-muted);">${employeeName(a.AssignedTo)} · ${client ? PmpUtils.escapeHtml(client.ClientName) : ''}${project ? ' · ' + PmpUtils.escapeHtml(project.ProjectName) : ''}</div>
+              <div style="font-size:11px; color:var(--pmp-text-muted);">${employeeName(a.AssignedTo)} · ${project ? PmpUtils.escapeHtml(project.ProjectName) + ' (' + PmpUtils.escapeHtml(project.ProjectID) + ')' : ''}${client ? ' · ' + PmpUtils.escapeHtml(client.ClientName) + ' (' + PmpUtils.escapeHtml(client.ClientID) + ')' : ''}</div>
             </div>
             <span class="pmp-badge pmp-badge-priority-${a.Priority}">${PmpUtils.escapeHtml(a.Priority || '')}</span>
           </div>
