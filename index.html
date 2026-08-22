@@ -101,6 +101,24 @@
     </div>
   </div>
 
+  <!-- HR PORTAL — read-only attendance/time visibility (see PmpHR / pmp-hr.js). No Inbox: HR never receives Task assignments, same reason Manager doesn't have one wired up either. -->
+  <div id="pmp-hr-portal" style="display:none;">
+    <div class="pmp-topbar">
+      <div class="pmp-brand">
+        <div class="pmp-brand-mark"></div>
+        <span>PMP · HR — <span id="pmp-hr-user-name"></span></span>
+      </div>
+      <div class="pmp-user-chip">
+        <button class="pmp-btn" id="pmp-hr-profile-nav-btn">Profile</button>
+        <button class="pmp-btn" id="pmp-hr-theme-toggle-btn">🌙</button>
+        <button class="pmp-btn" id="pmp-hr-logout-btn">Log out</button>
+      </div>
+    </div>
+    <div class="pmp-container pmp-container-wide">
+      <div id="pmp-hr-module"></div>
+    </div>
+  </div>
+
   <script src="js/pmp-config.js"></script>
   <script src="js/pmp-api.js"></script>
   <script src="js/pmp-utils.js"></script>
@@ -113,10 +131,11 @@
   <script src="js/pmp-employee.js"></script>
   <script src="js/pmp-teamlead-dashboard.js"></script>
   <script src="js/pmp-teamlead.js"></script>
+  <script src="js/pmp-hr.js"></script>
   <script>
     // Role-based routing at login — same pattern as TimeTrack's index.html
     function showView(id) {
-      ['pmp-login-view', 'pmp-manager-portal', 'pmp-employee-portal', 'pmp-teamlead-portal'].forEach(v => {
+      ['pmp-login-view', 'pmp-manager-portal', 'pmp-employee-portal', 'pmp-teamlead-portal', 'pmp-hr-portal'].forEach(v => {
         document.getElementById(v).style.display = v === id ? 'block' : 'none';
       });
     }
@@ -148,6 +167,16 @@
         });
         document.getElementById('pmp-tl-profile-nav-btn').addEventListener('click', () => openProfileModal(session));
         wireThemeToggle('pmp-tl-theme-toggle-btn');
+      } else if (session.role === PMP_CONFIG.ROLES.HR) {
+        // HR — read-only attendance/time visibility. No Inbox (HR never
+        // receives Task assignments), no task/project management modules
+        // — just PmpHR, same self-contained module pattern as every other
+        // portal's main module.
+        showView('pmp-hr-portal');
+        document.getElementById('pmp-hr-user-name').textContent = session.name;
+        await PmpHR.init('pmp-hr-module');
+        document.getElementById('pmp-hr-profile-nav-btn').addEventListener('click', () => openProfileModal(session));
+        wireThemeToggle('pmp-hr-theme-toggle-btn');
       } else {
         showView('pmp-employee-portal');
         document.getElementById('pmp-emp-user-name').textContent = session.name;
@@ -284,11 +313,18 @@
       setTimeout(() => { el.style.boxShadow = originalBoxShadow; }, 1500);
     }
 
-    // Shared across all three portals — shows read-only account info
+    // Shared across all portals — shows read-only account info
     // (Name / Role / Employee ID) and a Change Password form that requires
     // the current password before accepting a new one (see
     // pmp_changeOwnPassword in Code.gs). Session itself doesn't store the
     // password, so nothing here needs updating in localStorage on success.
+    //
+    // Note for the Admin ghost account: it has no row in Employees, so a
+    // password-change attempt here will fail with "Account not found" —
+    // Admin's credentials are changed by editing PMP_GHOST_ADMIN in
+    // Code.gs and redeploying. HR is NOT in this situation — it's a real
+    // Employees-sheet row, so an HR user changes their own password
+    // through this same form exactly like Employee/Manager/TeamLead.
     // Shared across all three portals — flips light/dark and updates the
     // button's icon to reflect the CURRENT state after the switch.
     function wireThemeToggle(btnId) {
@@ -426,6 +462,10 @@
       location.reload();
     });
     document.getElementById('pmp-tl-logout-btn').addEventListener('click', () => {
+      PmpUtils.clearSession();
+      location.reload();
+    });
+    document.getElementById('pmp-hr-logout-btn').addEventListener('click', () => {
       PmpUtils.clearSession();
       location.reload();
     });

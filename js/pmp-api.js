@@ -31,7 +31,7 @@ const PmpApi = (function () {
 
   return {
     // Auth
-    login: (username, password) => call('pmp_login', { username, password }),
+    login: (username, password) => call('pmp_login', { username, password }), // HR signs in through this SAME action too — HR is a real Employees-sheet row (Role = 'HR'), authenticated the normal way, not a ghost account
     changeOwnPassword: (data) => call('pmp_changeOwnPassword', data), // { employeeId, currentPassword, newPassword }
 
     // Clients
@@ -43,14 +43,6 @@ const PmpApi = (function () {
     getProjects: () => call('pmp_getProjects'),
     createProject: (data) => call('pmp_createProject', data),
     updateProject: (data) => call('pmp_updateProject', data),
-    // Monthly random Project -> Team Lead assignment. Generates once per
-    // calendar month and is stored server-side so it stays fixed for that
-    // month no matter how many times the page reloads or who loads it.
-    // Calling generate again for a month that's already been generated
-    // must be a no-op on the backend (return the existing assignment,
-    // don't re-roll) — see pmp-teamlead.js for how this is used.
-    getMonthlyProjectAssignments: (month) => call('pmp_getMonthlyProjectAssignments', { month }), // { month: 'YYYY-MM' }
-    generateMonthlyProjectAssignments: (data) => call('pmp_generateMonthlyProjectAssignments', data), // { month: 'YYYY-MM', generatedBy }
 
     // Tasks
     // A Task is the deliverable (e.g. "Brochure Page 5"); it can carry many
@@ -103,6 +95,11 @@ const PmpApi = (function () {
     getActivityLog: () => call('pmp_getActivityLog'),
     getTimesheetEntries: (data) => call('pmp_getTimesheetEntries', data), // { employeeId, date }
     getAllTimesheetEntries: (data) => call('pmp_getAllTimesheetEntries', data), // { employeeId } — every submitted entry, all dates
+    // Every submitted Leave entry across ALL active employees in one call —
+    // added for the HR Portal (pmp-hr.js), see pmp_getAllLeaveEntries in
+    // Code.gs for why this exists instead of looping getAllTimesheetEntries
+    // per employee.
+    getAllLeaveEntries: () => call('pmp_getAllLeaveEntries'),
     upsertTimesheetEntry: (data) => call('pmp_upsertTimesheetEntry', data), // { employeeId, date, entryId?, assignmentId, clientName, projectName, taskName, dimension, startTime, endTime, notes, source }
     saveTimesheetEntries: (data) => call('pmp_saveTimesheetEntries', data), // { employeeId, date, entries }
 
