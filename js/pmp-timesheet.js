@@ -35,6 +35,8 @@ const PmpTimesheet = (function () {
     employees: [],
     savedEntries: [],   // 'edit' mode only — what's already been submitted for the selected date
     editRows: [],       // 'edit' mode only — the live editable rows currently on screen
+    submittedByEmployee: {}, // 'view' mode only — employeeId -> their submitted entries for state.filters.date, used to know who still needs approval
+    viewerId: null,     // 'view' mode only — the Team Lead/Manager looking at this screen, recorded as ApprovedBy when they approve on someone's behalf
     containerId: null,
     filters: {
       date: PmpUtils.toLocalDateStr(new Date()),
@@ -47,8 +49,33 @@ const PmpTimesheet = (function () {
     state.containerId = containerId;
     state.mode = (opts && opts.mode) || 'view';
     state.employeeId = (opts && opts.employeeId) || null;
+    state.viewerId = (opts && opts.viewerId) || null;
+    // 'view' mode always opens showing everyone, not whoever was last
+    // selected — picking one person previously shouldn't force you back
+    // into a one-by-one loop the next time you open this tab.
+    if (state.mode === 'view') {
+      state.filters.employeeId = 'All';
+    }
+    // Arriving here from the Attendance grid's "No Entry" cell — jump
+    // straight to that employee/date and open the relevant action, instead
+    // of making the Team Lead re-pick both from scratch.
+    const presetEmployeeId = opts && opts.presetEmployeeId;
+    const presetDate = opts && opts.presetDate;
+    const autoAction = opts && opts.autoAction;
+    if (state.mode === 'view' && presetDate) {
+      state.filters.date = presetDate;
+    }
+    if (state.mode === 'view' && presetEmployeeId) {
+      state.filters.employeeId = presetEmployeeId;
+    }
     renderShell();
     await refresh();
+
+    if (state.mode === 'view' && presetEmployeeId && autoAction === 'forceLeave') {
+      openForceLeaveModal(presetEmployeeId);
+    } else if (state.mode === 'view' && presetEmployeeId && autoAction === 'forceEntry') {
+      openForceEntryModal(presetEmployeeId);
+    }
   }
 
   async function refresh() {
@@ -79,12 +106,14 @@ const PmpTimesheet = (function () {
         <input type="date" id="pmp-ts-date" value="${state.filters.date}" ${dateAttrs}>
         ${state.mode === 'view' ? `
           <select id="pmp-ts-employee">
-            <option value="All">All employees</option>
+            <option value="All">★ All Employees</option>
           </select>
           <select id="pmp-ts-team-filter">
             <option value="All">All teams</option>
             <option value="GD">GD Team</option>
           </select>
+          <div style="flex:1;"></div>
+          <button class="pmp-btn" id="pmp-ts-force-leave-btn" title="Pick a specific employee above first">Force Leave</button>
         ` : ''}
         ${state.mode === 'edit' ? `
           <div id="pmp-ts-total" style="font-size:13px; color:var(--pmp-text-muted); font-weight:600;"></div>
@@ -104,13 +133,20 @@ const PmpTimesheet = (function () {
     });
 
     if (state.mode === 'view') {
-      document.getElementById('pmp-ts-employee').addEventListener('change', e => {
+      document.getElementById('pmp-ts-employee').addEventListener('change', async e => {
         state.filters.employeeId = e.target.value;
-        renderView();
+        await renderView();
       });
-      document.getElementById('pmp-ts-team-filter').addEventListener('change', e => {
+      document.getElementById('pmp-ts-team-filter').addEventListener('change', async e => {
         state.filters.team = e.target.value;
-        renderView();
+        await renderView();
+      });
+      document.getElementById('pmp-ts-force-leave-btn').addEventListener('click', () => {
+        if (state.filters.employeeId === 'All') {
+          PmpUtils.toast('Pick a specific employee from the dropdown first.', 'error');
+          return;
+        }
+        openForceLeaveModal(state.filters.employeeId);
       });
     } else {
       document.getElementById('pmp-ts-mark-leave-btn').addEventListener('click', markDayAsLeave);
@@ -153,14 +189,18 @@ const PmpTimesheet = (function () {
     if (clientsRes.success) state.clients = clientsRes.clients;
     if (employeesRes.success) state.employees = employeesRes.employees;
 
-    renderView();
+    await renderView();
   }
 
   function renderView() {
+    return renderViewAsync();
+  }
+
+  async function renderViewAsync() {
     const empSelect = document.getElementById('pmp-ts-employee');
     if (empSelect && empSelect.children.length <= 1 && state.employees.length > 0) {
       empSelect.innerHTML = `
-        <option value="All">All employees</option>
+        <option value="All">★ All Employees</option>
         ${state.employees.map(e => `<option value="${e.employeeId}">${PmpUtils.escapeHtml(e.name)}</option>`).join('')}
       `;
       empSelect.value = state.filters.employeeId;
@@ -175,6 +215,19 @@ const PmpTimesheet = (function () {
       .filter(iv => state.filters.team === 'All' || isGdTeamInterval(iv));
 
     if (intervals.length === 0) {
+      // A specific employee with nothing logged is exactly the case
+      // Force Entry / Force Leave exist for — show the empty-state card
+      // with those actions instead of just a dead-end message.
+      if (state.filters.employeeId !== 'All') {
+        content.innerHTML = emptyEmployeeCard(state.filters.employeeId);
+        content.querySelectorAll('[data-force-leave]').forEach(btn => {
+          btn.addEventListener('click', () => openForceLeaveModal(btn.dataset.forceLeave));
+        });
+        content.querySelectorAll('[data-force-entry]').forEach(btn => {
+          btn.addEventListener('click', () => openForceEntryModal(btn.dataset.forceEntry));
+        });
+        return;
+      }
       content.innerHTML = `<div class="pmp-empty">${state.filters.team === 'GD' ? 'No GD Team work logged for this date.' : 'No work logged for this date.'}</div>`;
       return;
     }
@@ -184,11 +237,48 @@ const PmpTimesheet = (function () {
       if (!byEmployee[iv.EmployeeID]) byEmployee[iv.EmployeeID] = [];
       byEmployee[iv.EmployeeID].push(iv);
     });
+    const employeeIds = Object.keys(byEmployee);
 
-    content.innerHTML = Object.keys(byEmployee)
+    // Whether each of these employees has already submitted/approved
+    // anything for this date — needed so "Approve on Behalf" only shows
+    // up where it's actually needed, not on days already handled.
+    const submittedResults = await Promise.all(
+      employeeIds.map(empId => PmpApi.getTimesheetEntries({ employeeId: empId, date: state.filters.date }))
+    );
+    state.submittedByEmployee = {};
+    employeeIds.forEach((empId, idx) => {
+      state.submittedByEmployee[empId] = submittedResults[idx].success ? submittedResults[idx].entries : [];
+    });
+
+    content.innerHTML = employeeIds
       .sort((a, b) => employeeName(a).localeCompare(employeeName(b)))
       .map(empId => viewEmployeeBlock(empId, byEmployee[empId]))
       .join('');
+
+    content.querySelectorAll('[data-approve-on-behalf]').forEach(btn => {
+      btn.addEventListener('click', () => approveOnBehalf(btn.dataset.approveOnBehalf));
+    });
+    content.querySelectorAll('[data-force-leave]').forEach(btn => {
+      btn.addEventListener('click', () => openForceLeaveModal(btn.dataset.forceLeave));
+    });
+  }
+
+  function emptyEmployeeCard(employeeId) {
+    return `
+      <div class="pmp-card" style="border-left:3px solid ${PmpUtils.colorFromId(employeeId, 55)};">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div class="pmp-assignment-title">${PmpUtils.escapeHtml(employeeName(employeeId))}</div>
+            <span style="color:var(--status-delayed); font-size:12px; font-weight:600;">✕ No Entry</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <button class="pmp-btn pmp-btn-primary" data-force-entry="${employeeId}">Force Entry</button>
+            <button class="pmp-btn" data-force-leave="${employeeId}">Force Leave</button>
+          </div>
+        </div>
+        <div class="pmp-empty" style="margin:12px 0 0;">Nothing logged for this date.</div>
+      </div>
+    `;
   }
 
   function viewEmployeeBlock(employeeId, intervals) {
@@ -210,11 +300,30 @@ const PmpTimesheet = (function () {
       `;
     }).join('');
 
+    const submitted = state.submittedByEmployee[employeeId] || [];
+    const isApproved = submitted.length > 0;
+    // A row's own ApprovedBy tells us whether the employee approved their
+    // own day or someone else (a Team Lead) did it on their behalf — shown
+    // as a badge so it's clear at a glance which of these actually happened.
+    const approvedByOther = submitted.find(e => e.ApprovedBy && e.ApprovedBy !== employeeId);
+    const statusBadge = isApproved
+      ? (approvedByOther
+          ? `<span class="pmp-badge" style="background:#F57F17; color:#fff;">Approved by ${PmpUtils.escapeHtml(employeeName(approvedByOther.ApprovedBy))}</span>`
+          : `<span class="pmp-badge" style="background:#1B5E20; color:#fff;">Approved</span>`)
+      : `<span class="pmp-badge" style="background:var(--status-delayed); color:#fff;">Not yet approved</span>`;
+
     return `
       <div class="pmp-card" style="margin-bottom:16px; border-left:3px solid ${PmpUtils.colorFromId(employeeId, 55)};">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <div class="pmp-assignment-title">${PmpUtils.escapeHtml(employeeName(employeeId))}</div>
-          <span class="pmp-badge">${formatDuration(totalMinutes)} total</span>
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div class="pmp-assignment-title">${PmpUtils.escapeHtml(employeeName(employeeId))}</div>
+            ${statusBadge}
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span class="pmp-badge">${formatDuration(totalMinutes)} total</span>
+            ${!isApproved ? `<button class="pmp-btn pmp-btn-primary" data-approve-on-behalf="${employeeId}">Approve on Behalf</button>` : ''}
+            ${!isApproved ? `<button class="pmp-btn" data-force-leave="${employeeId}">Force Leave</button>` : ''}
+          </div>
         </div>
         <table class="pmp-table" style="margin-top:10px;">
           <thead><tr><th>Time</th><th>Client</th><th>Project</th><th>Task</th><th>Dimension</th><th>Duration</th></tr></thead>
@@ -490,7 +599,7 @@ const PmpTimesheet = (function () {
           </div>
         </div>
         <div style="margin-top:8px; padding-left:26px;">
-          <input type="text" data-field="notes" data-row="${row.localId}" value="${PmpUtils.escapeHtml(row.notes)}" placeholder="Add notes..." style="width:100%; box-sizing:border-box; font-size:12px;">
+          <input type="text" data-field="notes" data-row="${row.localId}" value="${PmpUtils.escapeHtml(row.notes)}" placeholder="Add notes..." style="width:60%; max-width:320px; box-sizing:border-box; font-size:12px;">
         </div>
         <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-top:8px; padding-left:26px;">
           ${row.submitted ? '<span class="pmp-badge" style="background:var(--status-completed); color:#fff;">Submitted</span>' : ''}
@@ -684,7 +793,8 @@ const PmpTimesheet = (function () {
     const res = await PmpApi.saveTimesheetEntries({
       employeeId: state.employeeId,
       date: state.filters.date,
-      entries: entries
+      entries: entries,
+      approvedBy: state.employeeId // self-approval — the employee submitting their own day
     });
 
     if (res.success) {
@@ -694,6 +804,272 @@ const PmpTimesheet = (function () {
       PmpUtils.toast(res.error || 'Could not save timesheet', 'error');
     }
     saveBtn.disabled = false;
+  }
+
+  // ============================================================
+  // 'view' mode — Team Lead/Manager approving a day on an employee's
+  // behalf, when the employee hasn't submitted it themselves (e.g. they
+  // forgot, or are out). Uses the exact same computed Pause/Resume
+  // intervals the employee would otherwise review and Save themselves —
+  // nothing is invented, it's the same ActivityLog-derived suggestion,
+  // just approved by someone else. ApprovedBy records who actually did
+  // it, so "Approved" (self) and "Approved by <Team Lead>" stay
+  // distinguishable everywhere this shows up.
+  // ============================================================
+
+  async function approveOnBehalf(employeeId) {
+    if (!state.viewerId) {
+      PmpUtils.toast('Could not identify who is approving this — please re-login and try again.', 'error');
+      return;
+    }
+
+    const btn = document.querySelector(`[data-approve-on-behalf="${employeeId}"]`);
+    if (btn) btn.disabled = true;
+
+    const intervals = PmpUtils.computeWorkIntervals(state.activityLog)
+      .filter(iv => iv.EmployeeID === employeeId)
+      .filter(iv => PmpUtils.toLocalDateStr(iv.start) === state.filters.date)
+      .sort((a, b) => new Date(a.start) - new Date(b.start));
+
+    if (intervals.length === 0) {
+      PmpUtils.toast('No logged work found for this day.', 'error');
+      if (btn) btn.disabled = false;
+      return;
+    }
+
+    const entries = intervals.map(iv => {
+      const joined = joinTaskInfo(iv.AssignmentID);
+      return {
+        assignmentId: iv.AssignmentID || '',
+        clientName: joined.clientName || '',
+        projectName: joined.projectName || '',
+        taskName: joined.taskName || '',
+        dimension: joined.dimension || '',
+        startTime: toDbTimestamp(iv.start),
+        endTime: toDbTimestamp(iv.end),
+        notes: '',
+        source: 'Manual'
+      };
+    });
+
+    const res = await PmpApi.saveTimesheetEntries({
+      employeeId: employeeId,
+      date: state.filters.date,
+      entries: entries,
+      approvedBy: state.viewerId, // the Team Lead/Manager doing this on their behalf, not the employee
+      managerOverride: true // Team Lead action — bypasses the 10-day self-edit window
+    });
+
+    if (res.success) {
+      PmpUtils.toast('Approved on behalf of ' + employeeName(employeeId), 'success');
+      await renderView();
+    } else {
+      PmpUtils.toast(res.error || 'Could not approve this day', 'error');
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // Stored timestamps elsewhere in 'view' mode are already full
+  // ISO/"YYYY-MM-DD HH:MM" values (straight from ActivityLog), unlike
+  // 'edit' mode's rows which build one from a separate time-input value —
+  // this just re-stamps it consistently for the save payload.
+  function toDbTimestamp(value) {
+    const d = new Date(value);
+    const h = String(d.getHours()).padStart(2, '0');
+    const m = String(d.getMinutes()).padStart(2, '0');
+    return state.filters.date + ' ' + h + ':' + m;
+  }
+
+  // Unlike Approve on Behalf, this works with zero logged activity for the
+  // day — that's the whole point (the employee was out, so of course
+  // there's nothing in ActivityLog). Reuses saveTimesheetEntries the same
+  // way markDayAsLeave (employee's own 'edit' mode) does: it replaces
+  // whatever's already saved for that date with a single Leave entry.
+  // ApprovedBy records the Team Lead/Manager doing this, same as Approve
+  // on Behalf, so it's clear this wasn't the employee's own submission.
+  function openForceLeaveModal(employeeId) {
+    const overlay = document.createElement('div');
+    overlay.className = 'pmp-modal-overlay';
+    overlay.innerHTML = `
+      <div class="pmp-modal">
+        <div class="pmp-modal-header">
+          <h3>Force Leave — ${PmpUtils.escapeHtml(employeeName(employeeId))}</h3>
+          <button class="pmp-modal-close">&times;</button>
+        </div>
+        <form id="pmp-ts-force-leave-form">
+          <p style="font-size:13px; color:var(--pmp-text-muted); margin-top:0;">Marks <strong style="font-size:15px; color:#7A5B00; background:#FDECC8; padding:2px 7px; border-radius:5px;">${formatModalDate(state.filters.date)}</strong> as Leave for ${PmpUtils.escapeHtml(employeeName(employeeId))}, replacing anything already saved for that date.</p>
+          <div class="pmp-form-grid">
+            <div class="pmp-form-row">
+              <label>Start</label>
+              <input type="time" name="startTime" value="09:30" required>
+            </div>
+            <div class="pmp-form-row">
+              <label>End</label>
+              <input type="time" name="endTime" value="19:30" required>
+            </div>
+          </div>
+          <div class="pmp-form-row">
+            <label>Notes (reason, optional)</label>
+            <textarea name="notes" rows="3" placeholder="e.g. Sick leave, Personal leave"></textarea>
+          </div>
+          <p id="pmp-ts-force-leave-error" style="color:var(--status-delayed); font-size:12px; display:none;"></p>
+          <div style="display:flex; justify-content:flex-end; gap:8px;">
+            <button type="button" class="pmp-btn pmp-modal-cancel">Cancel</button>
+            <button type="submit" class="pmp-btn pmp-btn-primary">Force Leave</button>
+          </div>
+        </form>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.querySelector('.pmp-modal-close').addEventListener('click', close);
+    overlay.querySelector('.pmp-modal-cancel').addEventListener('click', close);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+    overlay.querySelector('#pmp-ts-force-leave-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      if (!state.viewerId) {
+        PmpUtils.toast('Could not identify who is approving this — please re-login and try again.', 'error');
+        return;
+      }
+      const fd = new FormData(e.target);
+      const errorEl = overlay.querySelector('#pmp-ts-force-leave-error');
+      errorEl.style.display = 'none';
+      const submitBtn = e.target.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+
+      const res = await PmpApi.saveTimesheetEntries({
+        employeeId: employeeId,
+        date: state.filters.date,
+        entries: [{
+          assignmentId: '',
+          clientName: '',
+          projectName: '',
+          taskName: 'Leave',
+          dimension: '',
+          startTime: state.filters.date + ' ' + fd.get('startTime'),
+          endTime: state.filters.date + ' ' + fd.get('endTime'),
+          notes: fd.get('notes') || '',
+          source: 'Leave'
+        }],
+        approvedBy: state.viewerId,
+        managerOverride: true // Team Lead action — bypasses the 10-day self-edit window
+      });
+
+      if (res.success) {
+        PmpUtils.toast('Marked as Leave for ' + employeeName(employeeId), 'success');
+        close();
+        await renderView();
+      } else {
+        errorEl.textContent = res.error || 'Could not save this Leave entry';
+        errorEl.style.display = 'block';
+        submitBtn.disabled = false;
+      }
+    });
+  }
+
+  // Manual "the work happened, ActivityLog just doesn't have it" entry —
+  // for a day that's genuinely No Entry (nothing computed at all), unlike
+  // Approve on Behalf which needs existing intervals to work from. Client/
+  // Project/Task are free text here since there's no computed Assignment
+  // to attach to; this is a plain Manual-source entry, same as an
+  // employee's own "+ Add Manual Entry" in their edit view, just entered
+  // by the Team Lead and attributed via ApprovedBy.
+  function openForceEntryModal(employeeId) {
+    const overlay = document.createElement('div');
+    overlay.className = 'pmp-modal-overlay';
+    overlay.innerHTML = `
+      <div class="pmp-modal">
+        <div class="pmp-modal-header">
+          <h3>Force Entry — ${PmpUtils.escapeHtml(employeeName(employeeId))}</h3>
+          <button class="pmp-modal-close">&times;</button>
+        </div>
+        <form id="pmp-ts-force-entry-form">
+          <p style="font-size:13px; color:var(--pmp-text-muted); margin-top:0;">Adds a manual entry for <strong style="font-size:15px; color:#7A5B00; background:#FDECC8; padding:2px 7px; border-radius:5px;">${formatModalDate(state.filters.date)}</strong> on behalf of ${PmpUtils.escapeHtml(employeeName(employeeId))} — for work that happened but wasn't logged in PMP.</p>
+          <div class="pmp-form-row">
+            <label>Task / Description</label>
+            <input type="text" name="taskName" required placeholder="e.g. Client meeting, Site visit">
+          </div>
+          <div class="pmp-form-grid">
+            <div class="pmp-form-row">
+              <label>Client (optional)</label>
+              <input type="text" name="clientName">
+            </div>
+            <div class="pmp-form-row">
+              <label>Project (optional)</label>
+              <input type="text" name="projectName">
+            </div>
+          </div>
+          <div class="pmp-form-grid">
+            <div class="pmp-form-row">
+              <label>Start</label>
+              <input type="time" name="startTime" required>
+            </div>
+            <div class="pmp-form-row">
+              <label>End</label>
+              <input type="time" name="endTime" required>
+            </div>
+          </div>
+          <div class="pmp-form-row">
+            <label>Notes (optional)</label>
+            <textarea name="notes" rows="3"></textarea>
+          </div>
+          <p id="pmp-ts-force-entry-error" style="color:var(--status-delayed); font-size:12px; display:none;"></p>
+          <div style="display:flex; justify-content:flex-end; gap:8px;">
+            <button type="button" class="pmp-btn pmp-modal-cancel">Cancel</button>
+            <button type="submit" class="pmp-btn pmp-btn-primary">Force Entry</button>
+          </div>
+        </form>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.querySelector('.pmp-modal-close').addEventListener('click', close);
+    overlay.querySelector('.pmp-modal-cancel').addEventListener('click', close);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+    overlay.querySelector('#pmp-ts-force-entry-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      if (!state.viewerId) {
+        PmpUtils.toast('Could not identify who is approving this — please re-login and try again.', 'error');
+        return;
+      }
+      const fd = new FormData(e.target);
+      const errorEl = overlay.querySelector('#pmp-ts-force-entry-error');
+      errorEl.style.display = 'none';
+      const submitBtn = e.target.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+
+      const res = await PmpApi.saveTimesheetEntries({
+        employeeId: employeeId,
+        date: state.filters.date,
+        entries: [{
+          assignmentId: '',
+          clientName: fd.get('clientName') || '',
+          projectName: fd.get('projectName') || '',
+          taskName: fd.get('taskName'),
+          dimension: '',
+          startTime: state.filters.date + ' ' + fd.get('startTime'),
+          endTime: state.filters.date + ' ' + fd.get('endTime'),
+          notes: fd.get('notes') || '',
+          source: 'Manual'
+        }],
+        approvedBy: state.viewerId,
+        managerOverride: true // Team Lead action — bypasses the 10-day self-edit window
+      });
+
+      if (res.success) {
+        PmpUtils.toast('Entry added for ' + employeeName(employeeId), 'success');
+        close();
+        await renderView();
+      } else {
+        errorEl.textContent = res.error || 'Could not save this entry';
+        errorEl.style.display = 'block';
+        submitBtn.disabled = false;
+      }
+    });
   }
 
   // ============================================================
@@ -712,6 +1088,15 @@ const PmpTimesheet = (function () {
 
   function formatTime(value) {
     return new Date(value).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  // "YYYY-MM-DD" -> "Monday, 03 Aug 2026" — used in the Force Entry/Force
+  // Leave modals so the date being acted on is unmistakable (weekday +
+  // full date, not a bare ISO string) before confirming.
+  function formatModalDate(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' });
   }
 
   // Converts a stored timestamp (ISO string, or "YYYY-MM-DD HH:MM" as saved

@@ -22,10 +22,19 @@ const PmpTeamLead = (function () {
     assignments: [],
     projects: [],
     clients: [],
+    monthlyProjectAssignments: [], // [{ Month, ProjectID, AssignedTo }] for the current month
+    pendingTimesheetPreset: null, // { employeeId, dateStr, autoAction } — set by Attendance's "No Entry" popover, consumed once by the Timesheet tab render below
     containerId: null,
     activeTab: 'dashboard',
     filters: { status: 'All', priority: 'All', assignedTo: 'All' }
   };
+
+  // 'YYYY-MM' for the current calendar month — the key the monthly
+  // project-assignment roll is keyed on.
+  function currentMonthKey() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }
 
   async function init(containerId, teamLeadId) {
     state.containerId = containerId;
@@ -35,12 +44,13 @@ const PmpTeamLead = (function () {
   }
 
   async function refreshAll() {
-    const [teamRes, tasksRes, assignmentsRes, projectsRes, clientsRes] = await Promise.all([
+    const [teamRes, tasksRes, assignmentsRes, projectsRes, clientsRes, monthlyRes] = await Promise.all([
       PmpApi.getMyTeam(state.teamLeadId),
       PmpApi.getTasks(),
       PmpApi.getTeamAssignments(state.teamLeadId),
       PmpApi.getProjects(),
-      PmpApi.getClients()
+      PmpApi.getClients(),
+      PmpApi.getMonthlyProjectAssignments(currentMonthKey())
     ]);
 
     if (teamRes.success) state.team = teamRes.employees;
@@ -48,6 +58,7 @@ const PmpTeamLead = (function () {
     if (assignmentsRes.success) state.assignments = assignmentsRes.assignments;
     if (projectsRes.success) state.projects = projectsRes.projects;
     if (clientsRes.success) state.clients = clientsRes.clients;
+    if (monthlyRes.success) state.monthlyProjectAssignments = monthlyRes.assignments || [];
 
     render();
   }
@@ -133,8 +144,32 @@ const PmpTeamLead = (function () {
     // it reads ActivityLog, which nothing else on this tab needs. Reuses
     // the exact same 'view' mode Manager gets — no separate Team Lead
     // timesheet logic to keep in sync with it.
-    if (state.activeTab === 'attendance') { PmpAttendance.init('pmp-tl-content'); return; }
-    if (state.activeTab === 'timesheet') { PmpTimesheet.init('pmp-tl-content', { mode: 'view' }); return; }
+    if (state.activeTab === 'attendance') {
+      PmpAttendance.init('pmp-tl-content', {
+        onForceAction: (employeeId, dateStr, action) => {
+          state.activeTab = 'timesheet';
+          state.pendingTimesheetPreset = {
+            employeeId,
+            dateStr,
+            autoAction: action === 'leave' ? 'forceLeave' : 'forceEntry'
+          };
+          render();
+        }
+      });
+      return;
+    }
+    if (state.activeTab === 'timesheet') {
+      const preset = state.pendingTimesheetPreset;
+      state.pendingTimesheetPreset = null; // consume once — a later manual visit to this tab shouldn't re-trigger it
+      PmpTimesheet.init('pmp-tl-content', {
+        mode: 'view',
+        viewerId: state.teamLeadId,
+        presetEmployeeId: preset ? preset.employeeId : undefined,
+        presetDate: preset ? preset.dateStr : undefined,
+        autoAction: preset ? preset.autoAction : undefined
+      });
+      return;
+    }
     if (state.activeTab === 'projects') { renderProjects(content); return; }
     if (state.activeTab === 'clients') { renderClients(content); return; }
 
@@ -160,26 +195,62 @@ const PmpTeamLead = (function () {
       return;
     }
 
-    content.innerHTML = `<div class="pmp-card-grid">${state.projects.map(projectCard).join('')}</div>`;
+    const monthLabel = new Date(currentMonthKey() + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+    const hasRoll = state.monthlyProjectAssignments.length > 0;
+
+    content.innerHTML = `
+      <div class="pmp-card" style="margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <div>
+          <div style="font-weight:600;">Monthly Project Assignment — ${monthLabel}</div>
+          <div style="font-size:12px; color:var(--pmp-text-muted);">${hasRoll ? 'Each project below has been randomly assigned to a Team Lead for this month.' : 'Not generated yet for this month.'}</div>
+        </div>
+        ${hasRoll ? '' : `<button class="pmp-btn pmp-btn-primary" id="pmp-tl-roll-month-btn">Generate this month's assignment</button>`}
+      </div>
+      <div class="pmp-card-grid">${state.projects.map(projectCard).join('')}</div>
+    `;
+
+    const rollBtn = document.getElementById('pmp-tl-roll-month-btn');
+    if (rollBtn) rollBtn.addEventListener('click', generateMonthlyAssignment);
 
     content.querySelectorAll('[data-edit-project]').forEach(btn => {
       btn.addEventListener('click', () => openProjectModal(btn.dataset.editProject));
     });
   }
 
+  // Random per-month assignment is generated once and persisted server-side
+  // (pmp_generateMonthlyProjectAssignments), so every Team Lead who loads
+  // this tab sees the same picks for the month, and reloading the page
+  // never re-rolls it. If it's already been generated this month, the
+  // backend is expected to just return the existing rows unchanged.
+  async function generateMonthlyAssignment() {
+    const res = await PmpApi.generateMonthlyProjectAssignments({
+      month: currentMonthKey(),
+      generatedBy: state.teamLeadId
+    });
+    if (res.success) {
+      PmpUtils.toast("This month's project assignment is set", 'success');
+      await refreshAll();
+    } else {
+      PmpUtils.toast(res.error || 'Could not generate this month\'s assignment', 'error');
+    }
+  }
+
   function projectCard(project) {
     const client = state.clients.find(c => c.ClientID === project.ClientID);
     const taskCount = state.tasks.filter(t => t.ProjectID === project.ProjectID).length;
     const color = PmpUtils.colorFromId(project.ProjectID);
+    const monthlyRow = state.monthlyProjectAssignments.find(m => m.ProjectID === project.ProjectID);
+    const monthlyLead = monthlyRow ? state.team.find(e => e.employeeId === monthlyRow.AssignedTo) : null;
 
     return `
       <div class="pmp-card" style="border-top: 4px solid ${color};">
         <div class="pmp-assignment-title">${PmpUtils.escapeHtml(project.ProjectName)}</div>
         <div class="pmp-assignment-meta">
-          <span>${PmpUtils.escapeHtml(client ? client.ClientName : project.ClientID)}</span>
+          <span>${client ? PmpUtils.escapeHtml(client.ClientName) + ' ' : ''}<strong style="font-family:monospace; font-size:15px; font-weight:700; background:#FDECC8; color:#7A5B00; padding:2px 7px; border-radius:5px; display:inline-block;">${PmpUtils.escapeHtml(project.ClientID)}</strong></span>
           <span>${taskCount} task${taskCount === 1 ? '' : 's'}</span>
         </div>
         <div><span class="pmp-badge" style="background:${PMP_CONFIG.STATUS_COLORS[project.Status] || '#eee'};">${PmpUtils.escapeHtml(project.Status)}</span></div>
+        ${monthlyRow ? `<div style="font-size:12px; color:var(--pmp-text-muted);">This month: <strong>${monthlyLead ? PmpUtils.escapeHtml(monthlyLead.name) : PmpUtils.escapeHtml(monthlyRow.AssignedTo)}</strong></div>` : ''}
         <div class="pmp-assignment-actions">
           <button class="pmp-btn" data-edit-project="${project.ProjectID}">Edit</button>
         </div>
@@ -292,7 +363,7 @@ const PmpTeamLead = (function () {
       <div class="pmp-card" style="border-top:4px solid ${color};">
         <div class="pmp-assignment-title">${PmpUtils.escapeHtml(client.ClientName)}</div>
         <div class="pmp-assignment-meta">
-          <span style="color:var(--pmp-text-muted); font-family:monospace;">${PmpUtils.escapeHtml(client.ClientID)}</span>
+          <strong style="font-family:monospace; font-size:15px; font-weight:700; background:#FDECC8; color:#7A5B00; padding:2px 7px; border-radius:5px; display:inline-block;">${PmpUtils.escapeHtml(client.ClientID)}</strong>
           <span>${PmpUtils.escapeHtml(client.ContactPerson || 'No contact set')}</span>
           <span>${projectCount} project${projectCount === 1 ? '' : 's'}</span>
         </div>
@@ -470,8 +541,8 @@ const PmpTeamLead = (function () {
           <div>
             <div class="pmp-assignment-title">${PmpUtils.escapeHtml(task.TaskName)}</div>
             <div class="pmp-assignment-meta">
-              <span>${PmpUtils.escapeHtml(project ? project.ProjectName : task.ProjectID)}${project ? ` <span style="color:var(--pmp-text-muted); font-family:monospace; font-size:11px;">(${PmpUtils.escapeHtml(project.ProjectID)})</span>` : ''}</span>
-              ${client ? `<span style="display:inline-flex; align-items:center; gap:5px;"><span style="width:7px; height:7px; border-radius:50%; background:${clientColor}; display:inline-block;"></span>${PmpUtils.escapeHtml(client.ClientName)} <span style="color:var(--pmp-text-muted); font-family:monospace; font-size:11px;">(${PmpUtils.escapeHtml(client.ClientID)})</span></span>` : ''}
+              <span>${PmpUtils.escapeHtml(project ? project.ProjectName : task.ProjectID)}${project ? ` <strong style="font-family:monospace; font-size:15px; font-weight:700; background:#FDECC8; color:#7A5B00; padding:2px 7px; border-radius:5px; display:inline-block;">${PmpUtils.escapeHtml(project.ProjectID)}</strong>` : ''}</span>
+              ${client ? `<span style="display:inline-flex; align-items:center; gap:6px;"><span style="width:8px; height:8px; border-radius:50%; background:${clientColor}; display:inline-block;"></span><strong style="font-size:14px;">${PmpUtils.escapeHtml(client.ClientName)}</strong> <strong style="font-family:monospace; font-size:15px; font-weight:700; background:#FDECC8; color:#7A5B00; padding:2px 7px; border-radius:5px; display:inline-block;">${PmpUtils.escapeHtml(client.ClientID)}</strong></span>` : ''}
               ${task.Dimension ? `<span>${PmpUtils.escapeHtml(task.Dimension)}</span>` : ''}
               <span class="pmp-badge pmp-badge-priority-${task.Priority}">${PmpUtils.escapeHtml(task.Priority || '')}</span>
               <span>Due ${PmpUtils.formatDate(task.DueDate)} ${delayed ? '<span class="pmp-badge pmp-badge-delayed">Delayed</span>' : ''}</span>

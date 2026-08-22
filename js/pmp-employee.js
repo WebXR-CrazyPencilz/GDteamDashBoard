@@ -22,6 +22,7 @@ const PmpEmployee = (function () {
     tasks: [],
     projects: [],
     clients: [],
+    activityLog: [],
     containerId: null,
     filter: 'active' // 'active' | 'all'
   };
@@ -34,19 +35,59 @@ const PmpEmployee = (function () {
   }
 
   async function refresh() {
-    const [assignmentsRes, tasksRes, projectsRes, clientsRes] = await Promise.all([
+    const [assignmentsRes, tasksRes, projectsRes, clientsRes, activityRes] = await Promise.all([
       PmpApi.getMyAssignments(state.employeeId),
       PmpApi.getTasks(),
       PmpApi.getProjects(),
-      PmpApi.getClients()
+      PmpApi.getClients(),
+      PmpApi.getActivityLog()
     ]);
 
     if (assignmentsRes.success) state.assignments = assignmentsRes.assignments;
     if (tasksRes.success) state.tasks = tasksRes.tasks;
     if (projectsRes.success) state.projects = projectsRes.projects;
     if (clientsRes.success) state.clients = clientsRes.clients;
+    if (activityRes.success) state.activityLog = activityRes.activityLog;
 
     render();
+  }
+
+  // Finds this assignment's current open work interval (Working, not
+  // paused) from ActivityLog, so the card can show a real start time /
+  // elapsed duration instead of a static or fake value. Mirrors the
+  // start/end detection in PmpUtils.computeWorkIntervals, but — unlike that
+  // helper, which only returns intervals that have already closed — this
+  // deliberately returns the still-open one, since that's the one relevant
+  // to a card currently showing "Working".
+  function currentWorkStart(assignmentId) {
+    const rows = (state.activityLog || [])
+      .filter(r => r.AssignmentID === assignmentId)
+      .slice()
+      .sort((a, b) => new Date(a.Timestamp) - new Date(b.Timestamp));
+
+    let openStart = null;
+    rows.forEach(row => {
+      const isStart = (row.Action === 'StatusChange' && row.FromStatus === 'Assigned' && row.ToStatus === 'Working')
+        || row.Action === 'Resumed';
+      const isEnd = row.Action === 'Paused'
+        || (row.Action === 'StatusChange' && row.FromStatus === 'Working' && row.ToStatus !== 'Working');
+
+      if (isStart && !openStart) {
+        openStart = row.Timestamp;
+      } else if (isEnd && openStart) {
+        openStart = null;
+      }
+    });
+    return openStart;
+  }
+
+  function formatElapsed(startTimestamp) {
+    const start = new Date(startTimestamp);
+    if (isNaN(start.getTime())) return '';
+    const mins = Math.max(0, Math.round((Date.now() - start.getTime()) / 60000));
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
   }
 
   // Joins an Assignment onto its parent Task's shared fields. Falls back to
@@ -137,12 +178,20 @@ const PmpEmployee = (function () {
     const delayed = PmpUtils.isDelayed(assignment);
     const color = PmpUtils.colorFromId(assignment.ProjectID);
 
+    // Timing: while Working (and not paused), show the real start time and
+    // elapsed duration pulled from ActivityLog rather than a static value.
+    const workStart = (assignment.Status === 'Working' && assignment.IsPaused !== true)
+      ? currentWorkStart(assignment.AssignmentID)
+      : null;
+
     return `
       <div class="pmp-card pmp-assignment-card ${delayed ? 'is-delayed' : ''}" data-assignment-card="${assignment.AssignmentID}" style="border-left-color:${delayed ? 'var(--status-delayed)' : color};">
+        <div class="pmp-assignment-meta">
+          ${client ? `<span><strong style="font-family:monospace; font-size:16px; font-weight:700; background:#FDECC8; color:#7A5B00; padding:3px 8px; border-radius:5px; display:inline-block;">${PmpUtils.escapeHtml(client.ClientID)}</strong> ${PmpUtils.escapeHtml(client.ClientName)}</span>` : (project ? `<strong style="font-family:monospace; font-size:16px; font-weight:700; background:#FDECC8; color:#7A5B00; padding:3px 8px; border-radius:5px; display:inline-block;">${PmpUtils.escapeHtml(project.ClientID)}</strong>` : '')}
+          <span>${PmpUtils.escapeHtml(project ? project.ProjectName : assignment.ProjectID)}</span>
+        </div>
         <div class="pmp-assignment-title">${PmpUtils.escapeHtml(assignment.SubTask)}</div>
         <div class="pmp-assignment-meta">
-          <span>${PmpUtils.escapeHtml(project ? project.ProjectName : assignment.ProjectID)}${project ? ` <span style="color:var(--pmp-text-muted); font-family:monospace; font-size:11px;">(${PmpUtils.escapeHtml(project.ProjectID)})</span>` : ''}</span>
-          ${client ? `<span>${PmpUtils.escapeHtml(client.ClientName)} <span style="color:var(--pmp-text-muted); font-family:monospace; font-size:11px;">(${PmpUtils.escapeHtml(client.ClientID)})</span></span>` : ''}
           ${assignment.Dimension ? `<span>${PmpUtils.escapeHtml(assignment.Dimension)}</span>` : ''}
         </div>
         <div class="pmp-assignment-meta">
@@ -152,6 +201,7 @@ const PmpEmployee = (function () {
           ${assignment.Status === 'Assigned' ? '<span class="pmp-badge" style="background:var(--status-assigned); color:#fff;">New Task</span>' : ''}
           ${assignment.IsPaused === true ? '<span class="pmp-badge" style="background:#B08D57; color:#fff;">Paused</span>' : ''}
         </div>
+        ${workStart ? `<div style="font-size:12px; color:var(--pmp-text-muted);">Started ${new Date(workStart).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} · <strong>${formatElapsed(workStart)}</strong> elapsed</div>` : ''}
         ${assignment.IsPaused === true && assignment.PauseReason ? `<div style="font-size:12px; color:var(--pmp-text-muted);"><strong>Paused:</strong> ${PmpUtils.escapeHtml(assignment.PauseReason)}</div>` : ''}
         ${assignment.Notes ? `<div style="font-size:12px;"><strong>Manager notes:</strong> <span style="color:var(--pmp-text-muted);">${PmpUtils.escapeHtml(assignment.Notes)}</span></div>` : ''}
         ${assignment.EmployeeNotes ? `<div style="font-size:12px; color:var(--pmp-text-muted); background:#FBF8F0; padding:8px; border-radius:6px;"><strong>Your notes:</strong> ${PmpUtils.escapeHtml(assignment.EmployeeNotes)}</div>` : ''}

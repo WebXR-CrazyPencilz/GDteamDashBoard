@@ -34,7 +34,7 @@ const PmpDashboard = (function () {
     projects: [],
     clients: [],
     activityLog: [],
-    todaysEntries: [], // saved Timesheet entries for today (Other Work / Manual)
+    recentEntries: [], // saved Timesheet entries for the last 5 days (Other Work / Manual)
     onNavigate: null,  // (target: 'mytasks-pending'|'mytasks-completed'|'mytasks'|'timesheet'|task) => void
     tickHandle: null
   };
@@ -47,14 +47,13 @@ const PmpDashboard = (function () {
   }
 
   async function refresh() {
-    const today = PmpUtils.toLocalDateStr(new Date());
     const [assignmentsRes, tasksRes, projectsRes, clientsRes, logRes, entriesRes] = await Promise.all([
       PmpApi.getMyAssignments(state.employeeId),
       PmpApi.getTasks(),
       PmpApi.getProjects(),
       PmpApi.getClients(),
       PmpApi.getActivityLog(),
-      PmpApi.getTimesheetEntries({ employeeId: state.employeeId, date: today })
+      PmpApi.getAllTimesheetEntries({ employeeId: state.employeeId })
     ]);
 
     if (assignmentsRes.success) state.assignments = assignmentsRes.assignments;
@@ -62,7 +61,7 @@ const PmpDashboard = (function () {
     if (projectsRes.success) state.projects = projectsRes.projects;
     if (clientsRes.success) state.clients = clientsRes.clients;
     if (logRes.success) state.activityLog = logRes.log;
-    if (entriesRes.success) state.todaysEntries = entriesRes.entries;
+    if (entriesRes.success) state.recentEntries = entriesRes.entries;
 
     render();
   }
@@ -152,7 +151,11 @@ const PmpDashboard = (function () {
     return Math.max(0, Math.round((new Date(end) - new Date(start)) / 60000));
   }
 
-  // Last 7 calendar days (today inclusive), oldest first.
+  // Last 7 calendar days (today inclusive), oldest first. Each day also
+  // carries a per-project breakdown (segments) so the weekly chart can be
+  // drawn as a stacked bar with one color per project — same color a
+  // project gets everywhere else in the app (PmpUtils.colorFromId), so a
+  // project is recognizable at a glance across screens.
   function weeklyMinutes() {
     const days = [];
     for (let i = 6; i >= 0; i--) {
@@ -164,11 +167,36 @@ const PmpDashboard = (function () {
       .filter(iv => iv.EmployeeID === state.employeeId);
 
     return days.map(dateStr => {
-      const mins = intervals
-        .filter(iv => PmpUtils.toLocalDateStr(iv.start) === dateStr)
-        .reduce((sum, iv) => sum + minutesBetween(iv.start, iv.end), 0);
-      return { date: dateStr, minutes: mins };
+      const dayIntervals = intervals.filter(iv => PmpUtils.toLocalDateStr(iv.start) === dateStr);
+      const mins = dayIntervals.reduce((sum, iv) => sum + minutesBetween(iv.start, iv.end), 0);
+
+      const byProject = {};
+      dayIntervals.forEach(iv => {
+        const proj = projectForAssignment(iv.AssignmentID);
+        const key = proj ? proj.ProjectID : 'unknown';
+        if (!byProject[key]) {
+          byProject[key] = {
+            projectId: key,
+            projectName: proj ? proj.ProjectName : 'Other',
+            color: PmpUtils.colorFromId(key, 55),
+            minutes: 0
+          };
+        }
+        byProject[key].minutes += minutesBetween(iv.start, iv.end);
+      });
+
+      return { date: dateStr, minutes: mins, segments: Object.values(byProject) };
     });
+  }
+
+  // Resolves an Assignment -> its parent Task -> Project, so time worked
+  // can be attributed to a project for the weekly breakdown.
+  function projectForAssignment(assignmentId) {
+    const a = state.assignments.find(x => x.AssignmentID === assignmentId);
+    if (!a) return null;
+    const task = state.tasks.find(t => t.TaskID === a.TaskID);
+    const projectId = task ? task.ProjectID : a.ProjectID;
+    return state.projects.find(p => p.ProjectID === projectId) || null;
   }
 
   function taskCounts() {
@@ -327,8 +355,8 @@ const PmpDashboard = (function () {
             <div style="font-size:12px; color:var(--pmp-text-muted); margin-bottom:6px;">Currently Working On</div>
             <div class="pmp-assignment-title" style="font-size:17px;">${PmpUtils.escapeHtml(assignment.SubTask)}</div>
             <div class="pmp-assignment-meta" style="margin-top:6px;">
-              ${project ? `<span>${PmpUtils.escapeHtml(project.ProjectName)} <span style="color:var(--pmp-text-muted); font-family:monospace; font-size:11px;">(${PmpUtils.escapeHtml(project.ProjectID)})</span></span>` : ''}
-              ${client ? `<span>${PmpUtils.escapeHtml(client.ClientName)} <span style="color:var(--pmp-text-muted); font-family:monospace; font-size:11px;">(${PmpUtils.escapeHtml(client.ClientID)})</span></span>` : ''}
+              ${project ? `<span>${PmpUtils.escapeHtml(project.ProjectName)} <strong style="font-family:monospace; font-size:15px; font-weight:700; background:#FDECC8; color:#7A5B00; padding:2px 7px; border-radius:5px; display:inline-block;">${PmpUtils.escapeHtml(project.ProjectID)}</strong></span>` : ''}
+              ${client ? `<span>${PmpUtils.escapeHtml(client.ClientName)} <strong style="font-family:monospace; font-size:15px; font-weight:700; background:#FDECC8; color:#7A5B00; padding:2px 7px; border-radius:5px; display:inline-block;">${PmpUtils.escapeHtml(client.ClientID)}</strong></span>` : ''}
               ${assignment.Dimension ? `<span>${PmpUtils.escapeHtml(assignment.Dimension)}</span>` : ''}
               <span class="pmp-badge pmp-badge-priority-${assignment.Priority}">${PmpUtils.escapeHtml(assignment.Priority || '')}</span>
               <span>Due ${PmpUtils.formatDate(assignment.DueDate)}</span>
@@ -407,7 +435,7 @@ const PmpDashboard = (function () {
         return `
           <div data-dash-open-task="${a.AssignmentID}" style="border-left:3px solid ${borderColor}; padding:8px 10px; margin-bottom:8px; cursor:pointer;">
             <div style="font-size:13px; font-weight:600;">${PmpUtils.escapeHtml(a.SubTask)}</div>
-            <div style="font-size:11px; color:var(--pmp-text-muted);">${project ? PmpUtils.escapeHtml(project.ProjectName) + ' (' + PmpUtils.escapeHtml(project.ProjectID) + ')' : ''}${client ? ' · ' + PmpUtils.escapeHtml(client.ClientName) + ' (' + PmpUtils.escapeHtml(client.ClientID) + ')' : ''}</div>
+            <div style="font-size:13px; color:var(--pmp-text-muted);">${project ? `<strong style="font-family:monospace; font-size:15px; font-weight:700; background:#FDECC8; color:#7A5B00; padding:2px 7px; border-radius:5px; display:inline-block;">${PmpUtils.escapeHtml(project.ProjectID)}</strong> ${PmpUtils.escapeHtml(project.ProjectName)}` : ''}${client ? ' · <strong style="font-family:monospace; font-size:15px; font-weight:700; background:#FDECC8; color:#7A5B00; padding:2px 7px; border-radius:5px; display:inline-block;">' + PmpUtils.escapeHtml(client.ClientID) + '</strong> ' + PmpUtils.escapeHtml(client.ClientName) : ''}</div>
             <div style="font-size:11px; color:var(--pmp-text-muted); margin-top:2px;">Due ${PmpUtils.formatDate(a.DueDate)}</div>
           </div>
         `;
@@ -486,24 +514,47 @@ const PmpDashboard = (function () {
     const el = document.getElementById('pmp-dash-weekly');
     if (!el) return;
 
-    const max = Math.max(60, ...week.map(w => w.minutes)); // at least 1hr scale so a zero week isn't all full-height bars
+    const max = Math.max(60, ...week.map(w => w.minutes)); // at least 1hr scale so a zero week isn't all full-width bars
+    const today = PmpUtils.toLocalDateStr(new Date());
+
+    // Every project that shows up anywhere this week, for a single shared
+    // legend under the chart — built from the same colors used per segment
+    // below, so the legend and the bars always agree.
+    const legend = {};
+    week.forEach(w => w.segments.forEach(s => { if (!legend[s.projectId]) legend[s.projectId] = s; }));
+    const legendList = Object.values(legend);
+
     el.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
         <div style="font-weight:600;">This Week's Activity</div>
       </div>
-      <div style="display:flex; align-items:flex-end; gap:8px; height:110px;">
+      <div>
         ${week.map(w => {
-          const h = Math.round((w.minutes / max) * 90);
-          const label = new Date(w.date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short' });
+          const label = w.date === today ? 'Today' : new Date(w.date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' });
+          const widthPct = Math.max(0, Math.min(100, (w.minutes / max) * 100));
           return `
-            <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:4px;">
-              <div style="font-size:10px; color:var(--pmp-text-muted);">${w.minutes > 0 ? formatHM(w.minutes) : ''}</div>
-              <div style="width:100%; max-width:28px; height:${Math.max(h, 2)}px; background:var(--status-working); border-radius:4px 4px 0 0; opacity:${w.minutes > 0 ? 1 : 0.25};"></div>
-              <div style="font-size:10px; color:var(--pmp-text-muted);">${label}</div>
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+              <div style="width:64px; flex-shrink:0; font-size:11px; color:var(--pmp-text-muted); text-align:right;">${label}</div>
+              <div style="flex:1; height:20px; background:var(--pmp-border, #f0f0f0); border-radius:4px; overflow:hidden; display:flex;">
+                ${w.minutes === 0 ? '' : w.segments.map(s => {
+                  const segWidthPct = (s.minutes / w.minutes) * widthPct;
+                  return `<div title="${PmpUtils.escapeHtml(s.projectName)}: ${formatHM(s.minutes)}" style="width:${segWidthPct}%; height:100%; background:${s.color};"></div>`;
+                }).join('')}
+              </div>
+              <div style="width:44px; flex-shrink:0; font-size:11px; color:var(--pmp-text-muted);">${w.minutes > 0 ? formatHM(w.minutes) : '—'}</div>
             </div>
           `;
         }).join('')}
       </div>
+      ${legendList.length === 0 ? '' : `
+      <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:6px; padding-top:8px; border-top:1px solid var(--pmp-border, #f0f0f0);">
+        ${legendList.map(s => `
+          <div style="display:flex; align-items:center; gap:5px; font-size:11px; color:var(--pmp-text-muted);">
+            <span style="width:9px; height:9px; border-radius:50%; background:${s.color}; display:inline-block; flex-shrink:0;"></span>
+            ${PmpUtils.escapeHtml(s.projectName)}
+          </div>
+        `).join('')}
+      </div>`}
       <div style="margin-top:8px;"><a href="#" id="pmp-dash-view-timesheet" style="font-size:12px;">View full timesheet →</a></div>
     `;
 
@@ -529,47 +580,72 @@ const PmpDashboard = (function () {
     const el = document.getElementById('pmp-dash-timeline');
     if (!el) return;
 
-    const today = PmpUtils.toLocalDateStr(new Date());
-    const events = [];
+    // Last 5 calendar days, today included, most recent first.
+    const days = [];
+    for (let i = 0; i < 5; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      days.push(PmpUtils.toLocalDateStr(d));
+    }
+    const daySet = new Set(days);
+
+    const eventsByDay = {};
+    days.forEach(d => { eventsByDay[d] = []; });
 
     (state.activityLog || [])
-      .filter(r => r.EmployeeID === state.employeeId && PmpUtils.toLocalDateStr(r.Timestamp) === today)
+      .filter(r => r.EmployeeID === state.employeeId && daySet.has(PmpUtils.toLocalDateStr(r.Timestamp)))
       .forEach(r => {
+        const day = PmpUtils.toLocalDateStr(r.Timestamp);
         const task = taskNameForAssignment(r.AssignmentID);
         if (r.Action === 'StatusChange' && r.FromStatus === 'Assigned' && r.ToStatus === 'Working') {
-          events.push({ time: r.Timestamp, icon: 'start', title: 'Started working', detail: task });
+          eventsByDay[day].push({ time: r.Timestamp, icon: 'start', title: 'Started working', detail: task });
         } else if (r.Action === 'Paused') {
-          events.push({ time: r.Timestamp, icon: 'pause', title: 'Paused', detail: task });
+          eventsByDay[day].push({ time: r.Timestamp, icon: 'pause', title: 'Paused', detail: task });
         } else if (r.Action === 'Resumed') {
-          events.push({ time: r.Timestamp, icon: 'resume', title: 'Resumed work', detail: task });
+          eventsByDay[day].push({ time: r.Timestamp, icon: 'resume', title: 'Resumed work', detail: task });
         } else if (r.Action === 'StatusChange' && r.FromStatus === 'Working' && r.ToStatus === 'Review') {
-          events.push({ time: r.Timestamp, icon: 'complete', title: 'Marked complete', detail: task });
+          eventsByDay[day].push({ time: r.Timestamp, icon: 'complete', title: 'Marked complete', detail: task });
         }
       });
 
-    // Manual/Other Work timesheet entries for today (e.g. meetings, lunch)
-    // — these are real submitted rows, not fabricated. Shown as their own
-    // start event since they don't produce ActivityLog rows.
-    (state.todaysEntries || []).forEach(e => {
+    // Manual/Other Work timesheet entries (e.g. meetings, lunch) — real
+    // submitted rows, not fabricated. Shown as their own start event since
+    // they don't produce ActivityLog rows.
+    (state.recentEntries || []).forEach(e => {
+      if (!daySet.has(e.Date)) return;
       if (e.Source === 'Manual' || !e.AssignmentID) {
-        events.push({ time: e.StartTime, icon: 'manual', title: e.TaskName || 'Other work', detail: e.Notes || '' });
+        eventsByDay[e.Date].push({ time: e.StartTime, icon: 'manual', title: e.TaskName || 'Other work', detail: e.Notes || '' });
       }
     });
 
-    events.sort((a, b) => new Date(a.time) - new Date(b.time));
+    days.forEach(d => { eventsByDay[d].sort((a, b) => new Date(a.time) - new Date(b.time)); });
+
+    const dayLabelWords = ['Today', 'Yesterday', 'Day before yesterday'];
+    const dayLabel = (d, idx) => dayLabelWords[idx] || (idx + ' days ago');
+
+    const totalEvents = days.reduce((sum, d) => sum + eventsByDay[d].length, 0);
 
     el.innerHTML = `
-      <div style="font-weight:600; margin-bottom:10px;">Today's Timeline</div>
-      ${events.length === 0 ? '<div class="pmp-empty" style="margin:0;">Nothing logged yet today.</div>' : events.map(ev => `
-        <div style="display:flex; gap:10px; padding:6px 0; border-bottom:1px solid var(--pmp-border, #f0f0f0);">
-          <div style="font-size:11px; color:var(--pmp-text-muted); width:56px; flex-shrink:0;">${formatTime(ev.time)}</div>
-          <div style="width:18px; flex-shrink:0; text-align:center;">${TIMELINE_ICONS[ev.icon] || '•'}</div>
-          <div style="flex:1; min-width:0;">
-            <div style="font-size:12px; font-weight:600;">${PmpUtils.escapeHtml(ev.title)}</div>
-            ${ev.detail ? `<div style="font-size:11px; color:var(--pmp-text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${PmpUtils.escapeHtml(ev.detail)}</div>` : ''}
+      <div style="font-weight:600; margin-bottom:10px;">Last 5 Days' Timeline</div>
+      ${totalEvents === 0 ? '<div class="pmp-empty" style="margin:0;">Nothing logged in the last 5 days.</div>' : days.map((d, idx) => {
+        const dayEvents = eventsByDay[d];
+        if (dayEvents.length === 0) return '';
+        return `
+          <div style="margin-bottom:10px;">
+            <div style="font-size:12px; font-weight:700; color:var(--pmp-text-muted); margin-bottom:4px;">${dayLabel(d, idx)}</div>
+            ${dayEvents.map(ev => `
+              <div style="display:flex; gap:10px; padding:6px 0; border-bottom:1px solid var(--pmp-border, #f0f0f0);">
+                <div style="font-size:11px; color:var(--pmp-text-muted); width:56px; flex-shrink:0;">${formatTime(ev.time)}</div>
+                <div style="width:18px; flex-shrink:0; text-align:center;">${TIMELINE_ICONS[ev.icon] || '•'}</div>
+                <div style="flex:1; min-width:0;">
+                  <div style="font-size:12px; font-weight:600;">${PmpUtils.escapeHtml(ev.title)}</div>
+                  ${ev.detail ? `<div style="font-size:11px; color:var(--pmp-text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${PmpUtils.escapeHtml(ev.detail)}</div>` : ''}
+                </div>
+              </div>
+            `).join('')}
           </div>
-        </div>
-      `).join('')}
+        `;
+      }).join('')}
     `;
   }
 
@@ -597,16 +673,20 @@ const PmpDashboard = (function () {
       </div>
       ${sorted.length === 0 ? '<div class="pmp-empty" style="margin:0;">No tasks yet.</div>' : `
       <table class="pmp-table">
-        <thead><tr><th>Task</th><th>Priority</th><th>Status</th><th>Due</th></tr></thead>
+        <thead><tr><th>Task</th><th>Client</th><th>Priority</th><th>Status</th><th>Due</th></tr></thead>
         <tbody>
-          ${sorted.map(a => `
+          ${sorted.map(a => {
+            const { project, client } = projectAndClient(a);
+            return `
             <tr data-dash-open-task="${a.AssignmentID}" style="cursor:pointer;">
               <td>${PmpUtils.escapeHtml(a.SubTask)}</td>
+              <td>${client ? `<strong style="font-family:monospace; font-size:15px; font-weight:700; background:#FDECC8; color:#7A5B00; padding:2px 7px; border-radius:5px; display:inline-block;">${PmpUtils.escapeHtml(client.ClientID)}</strong> ${PmpUtils.escapeHtml(client.ClientName)}` : (project ? `<strong style="font-family:monospace; font-size:15px; font-weight:700; background:#FDECC8; color:#7A5B00; padding:2px 7px; border-radius:5px; display:inline-block;">${PmpUtils.escapeHtml(project.ProjectID)}</strong>` : '—')}</td>
               <td><span class="pmp-badge pmp-badge-priority-${a.Priority}">${PmpUtils.escapeHtml(a.Priority || '')}</span></td>
               <td><span class="pmp-badge" style="background:${PMP_CONFIG.STATUS_COLORS[a.Status] || '#eee'};">${PmpUtils.escapeHtml(a.Status)}</span></td>
               <td>${PmpUtils.formatDate(a.DueDate)}</td>
             </tr>
-          `).join('')}
+          `;
+          }).join('')}
         </tbody>
       </table>`}
     `;
