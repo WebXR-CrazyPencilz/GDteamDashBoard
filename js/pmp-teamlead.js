@@ -75,6 +75,7 @@ const PmpTeamLead = (function () {
         <button class="pmp-btn" data-tab="attendance">Attendance</button>
         <button class="pmp-btn" data-tab="timesheet">Timesheet</button>
         <button class="pmp-btn" data-tab="projects">Projects</button>
+        <button class="pmp-btn" data-tab="projects-explorer">Projects &amp; Clients</button>
         <button class="pmp-btn" data-tab="clients">Clients</button>
         <button class="pmp-btn" data-tab="team">Employees</button>
         <div style="flex:1;"></div>
@@ -171,6 +172,7 @@ const PmpTeamLead = (function () {
       return;
     }
     if (state.activeTab === 'projects') { renderProjects(content); return; }
+    if (state.activeTab === 'projects-explorer') { PmpProjectsExplorer.init('pmp-tl-content', { viewerId: state.teamLeadId }); return; }
     if (state.activeTab === 'clients') { renderClients(content); return; }
 
     // Assignments and Employees both need the active pool to mean anything.
