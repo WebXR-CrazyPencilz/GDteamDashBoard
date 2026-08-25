@@ -34,9 +34,10 @@
  * ranking — intentionally absent, not an oversight.
  *
  * Self-sufficient module: owns its own state, fed by init(containerId).
- * Assumes the caller (a small HR-only entry page, e.g. hr.html) has
- * already authenticated via PmpApi.hrLogin — this module has no login UI
- * of its own, same as every other Pmp* module in this codebase.
+ * Assumes the caller (index.html's routeToPortal, same as every other
+ * portal) has already authenticated via the normal PmpApi.login/pmp_login
+ * flow — this module has no login UI of its own, same as every other
+ * Pmp* module in this codebase.
  */
 
 const PmpHR = (function () {

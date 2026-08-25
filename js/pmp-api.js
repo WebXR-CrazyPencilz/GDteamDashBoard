@@ -43,6 +43,14 @@ const PmpApi = (function () {
     getProjects: () => call('pmp_getProjects'),
     createProject: (data) => call('pmp_createProject', data),
     updateProject: (data) => call('pmp_updateProject', data),
+    // Monthly random Project -> Team Lead assignment. Generates once per
+    // calendar month and is stored server-side so it stays fixed for that
+    // month no matter how many times the page reloads or who loads it.
+    // Calling generate again for a month that's already been generated
+    // must be a no-op on the backend (return the existing assignment,
+    // don't re-roll) — see pmp-teamlead.js for how this is used.
+    getMonthlyProjectAssignments: (month) => call('pmp_getMonthlyProjectAssignments', { month }), // { month: 'YYYY-MM' }
+    generateMonthlyProjectAssignments: (data) => call('pmp_generateMonthlyProjectAssignments', data), // { month: 'YYYY-MM', generatedBy }
 
     // Tasks
     // A Task is the deliverable (e.g. "Brochure Page 5"); it can carry many
