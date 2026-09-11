@@ -4,7 +4,7 @@
  */
 
 const PMP_CONFIG = {
-  API_URL: 'https://script.google.com/macros/s/AKfycbw3HT8tY3qjVuQrYRQ9jLVrfo8rZN4clW8rrs_zbkOs0V467g04GMnpacH4ywLn4jMV/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbz9phwvvEV09DtPSN8yVjQdEnBzY1B6nEY9vmVlG6N4cl5rE9YyZYQNu04Oyye8mW6W/exec',
 
   // No "Accepted" state — employees never accept work, they start it. First
   // "Start Work" click auto-transitions Assigned -> Working.
@@ -58,7 +58,9 @@ const PMP_CONFIG = {
     REWORK: 'Rework',
     DEADLINE_REMINDER: 'DeadlineReminder',
     COMPLETED_APPROVAL: 'CompletedApproval',
-    ANNOUNCEMENT: 'Announcement'
+    ANNOUNCEMENT: 'Announcement',
+    STALE_PAUSE: 'StalePause',
+    TIMESHEET_SUBMITTED: 'TimesheetSubmitted'
   },
 
   SESSION_KEY: 'pmp_session'

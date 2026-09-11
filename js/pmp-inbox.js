@@ -23,7 +23,9 @@ const PmpInbox = (function () {
     Rework: 'Rework',
     DeadlineReminder: 'Deadline Reminder',
     CompletedApproval: 'Completed Approval',
-    Announcement: 'Announcement'
+    Announcement: 'Announcement',
+    StalePause: 'Paused Too Long',
+    TimesheetSubmitted: 'Timesheet Submitted'
   };
 
   let state = {
@@ -121,6 +123,10 @@ const PmpInbox = (function () {
     const task = state.tasks.find(t => t.TaskID === n.RelatedTaskID);
     const assignedBy = task ? state.employees.find(e => e.employeeId === task.CreatedBy) : null;
     const label = TYPE_LABELS[n.Type] || n.Type;
+    // Some notifications (e.g. TimesheetSubmitted) have no Task behind
+    // them at all — "Open Task" would be a lie for those, so it's relabeled
+    // "Dismiss" but still just marks the notification read, same as before.
+    const actionLabel = task || n.RelatedTaskID ? 'Open Task' : 'Dismiss';
 
     return `
       <div class="pmp-card" style="${n.Read ? '' : 'border-left-color:var(--status-assigned);'}">
@@ -137,7 +143,7 @@ const PmpInbox = (function () {
         </div>` : ''}
         ${n.Message ? `<div style="font-size:12px; color:var(--pmp-text-muted);">${PmpUtils.escapeHtml(n.Message)}</div>` : ''}
         <div class="pmp-assignment-actions">
-          <button class="pmp-btn pmp-btn-primary" data-open-notification="${n.NotificationID}">Open Task</button>
+          <button class="pmp-btn pmp-btn-primary" data-open-notification="${n.NotificationID}">${actionLabel}</button>
         </div>
       </div>
     `;

@@ -197,6 +197,7 @@ const PmpEmployee = (function () {
         <div class="pmp-assignment-meta">
           <span class="pmp-badge pmp-badge-priority-${assignment.Priority}">${PmpUtils.escapeHtml(assignment.Priority)}</span>
           <span>Due ${PmpUtils.formatDate(assignment.DueDate)} ${delayed ? '<span class="pmp-badge pmp-badge-delayed">Delayed</span>' : ''}</span>
+          ${assignment.EstimatedHours ? `<span>Est. ${PmpUtils.escapeHtml(assignment.EstimatedHours)}h</span>` : ''}
           <span class="pmp-badge" style="background:${PMP_CONFIG.STATUS_COLORS[assignment.Status] || '#eee'};">${PmpUtils.escapeHtml(assignment.Status)}</span>
           ${assignment.Status === 'Assigned' ? '<span class="pmp-badge" style="background:var(--status-assigned); color:#fff;">New Task</span>' : ''}
           ${assignment.IsPaused === true ? '<span class="pmp-badge" style="background:#B08D57; color:#fff;">Paused</span>' : ''}
