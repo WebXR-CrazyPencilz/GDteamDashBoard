@@ -95,8 +95,8 @@ const PmpTimesheet = (function () {
   // ============================================================
 
   function renderShell() {
-    // Employees can only edit today or the previous 10 days — no future
-    // dates, and nothing older than the 10-day window. Team Lead/Manager
+    // Employees can only edit today or the previous 4 days — no future
+    // dates, and nothing older than the 4-day window. Team Lead/Manager
     // 'view' mode is unrestricted since it's read-only reporting, not editing.
     const dateRange = editableDateRange();
     const dateAttrs = state.mode === 'edit' ? `min="${dateRange.min}" max="${dateRange.max}"` : '';
@@ -157,14 +157,15 @@ const PmpTimesheet = (function () {
   }
 
   // { min, max } as "YYYY-MM-DD" — today is the latest editable date
-  // (can't fill in a timesheet for a day that hasn't happened), and 10
-  // days ago is the earliest (old entries lock out after that).
+  // (can't fill in a timesheet for a day that hasn't happened), and 4
+  // days ago is the earliest (old entries lock out after that). So the
+  // editable window is today + the previous 4 days = 5 days total.
   function editableDateRange() {
     const today = new Date();
     const max = PmpUtils.toLocalDateStr(today);
-    const tenDaysAgo = new Date(today);
-    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
-    const min = PmpUtils.toLocalDateStr(tenDaysAgo);
+    const fourDaysAgo = new Date(today);
+    fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
+    const min = PmpUtils.toLocalDateStr(fourDaysAgo);
     return { min, max };
   }
 
@@ -857,7 +858,7 @@ const PmpTimesheet = (function () {
       date: state.filters.date,
       entries: entries,
       approvedBy: state.viewerId, // the Team Lead/Manager doing this on their behalf, not the employee
-      managerOverride: true // Team Lead action — bypasses the 10-day self-edit window
+      managerOverride: true // Team Lead action — bypasses the self-edit date window
     });
 
     if (res.success) {
@@ -954,7 +955,7 @@ const PmpTimesheet = (function () {
           source: 'Leave'
         }],
         approvedBy: state.viewerId,
-        managerOverride: true // Team Lead action — bypasses the 10-day self-edit window
+        managerOverride: true // Team Lead action — bypasses the self-edit date window
       });
 
       if (res.success) {
@@ -1057,7 +1058,7 @@ const PmpTimesheet = (function () {
           source: 'Manual'
         }],
         approvedBy: state.viewerId,
-        managerOverride: true // Team Lead action — bypasses the 10-day self-edit window
+        managerOverride: true // Team Lead action — bypasses the self-edit date window
       });
 
       if (res.success) {
