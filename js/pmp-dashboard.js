@@ -370,10 +370,10 @@ const PmpDashboard = (function () {
             }
           </div>
         </div>
-        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+        <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:16px;">
           ${isPaused
-            ? `<button class="pmp-btn pmp-btn-primary" data-dash-resume="${assignment.AssignmentID}">Resume</button>`
-            : `<button class="pmp-btn" data-dash-pause="${assignment.AssignmentID}">Pause</button>`
+            ? `<button class="pmp-btn pmp-btn-primary" data-dash-resume="${assignment.AssignmentID}" style="font-size:16px; font-weight:700; padding:14px 36px; border-radius:8px;">▶ Resume</button>`
+            : `<button class="pmp-btn" data-dash-pause="${assignment.AssignmentID}" style="font-size:16px; font-weight:700; padding:14px 36px; border-radius:8px; border:2px solid var(--pmp-border, #ddd);">⏸ Pause</button>`
           }
         </div>
       </div>
